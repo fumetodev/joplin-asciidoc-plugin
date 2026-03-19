@@ -54,7 +54,7 @@ function appendSentinel(content: string, settings: Record<string, any>): string 
 }
 
 // =====================================================
-// Markdown → AsciiDoc heading conversion
+// Markdown → AsciiDoc conversion helpers
 // =====================================================
 
 /**
@@ -89,6 +89,62 @@ function convertMarkdownHeadings(text: string): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Convert Markdown unordered lists using `-` markers to AsciiDoc `*` markers.
+ *
+ * Matches lines where `-` is a list marker:
+ * - At the start of the line (after optional whitespace used for nesting)
+ * - Followed by a space and then list content
+ * - Indent level determines nesting depth (every 2 spaces = one extra level)
+ *
+ * Does NOT convert:
+ * - Hyphens inside words (e.g., "side-effect")
+ * - Lines inside fenced code blocks
+ * - Horizontal rules (---, ----, etc.)
+ * - Lines where `-` is not followed by a space (not a list marker)
+ */
+function convertMarkdownLists(text: string): string {
+  const lines = text.split("\n");
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    // Track fenced code blocks to avoid converting inside them
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+
+    // Match a markdown list item: optional leading whitespace, then "- " followed by content
+    const match = lines[i].match(/^(\s*)- (.+)$/);
+    if (!match) continue;
+
+    const [, indent, content] = match;
+
+    // Skip horizontal rules (lines that are only dashes, possibly with spaces)
+    if (/^-[\s-]*$/.test(trimmed)) continue;
+
+    // Calculate nesting depth: base level is 1 star, each 2 spaces of indent adds a level
+    const depth = Math.floor(indent.length / 2) + 1;
+    const stars = "*".repeat(depth);
+    lines[i] = `${stars} ${content}`;
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Apply all Markdown → AsciiDoc conversions.
+ */
+function convertMarkdownToAsciidoc(text: string): string {
+  let result = text;
+  result = convertMarkdownHeadings(result);
+  result = convertMarkdownLists(result);
+  return result;
 }
 
 // =====================================================
@@ -208,7 +264,7 @@ async function registerCommands() {
         fields: ["id", "body", "parent_id"],
       });
       if (!note || isAsciiDocNote(note.body)) return;
-      const converted = convertMarkdownHeadings(note.body);
+      const converted = convertMarkdownToAsciidoc(note.body);
       const newBody = appendSentinel(converted, {});
       await joplin.data.put(["notes", note.id], null, { body: newBody });
       // Force refresh by navigating away and back
@@ -236,7 +292,7 @@ async function registerCommands() {
       if (!note) return;
       const body = isAsciiDocNote(note.body)
         ? note.body
-        : appendSentinel(convertMarkdownHeadings(note.body), {});
+        : appendSentinel(convertMarkdownToAsciidoc(note.body), {});
       const copy = await joplin.data.post(["notes"], null, {
         parent_id: note.parent_id,
         title: note.title + " (AsciiDoc)",
@@ -320,7 +376,7 @@ async function registerCommands() {
         return;
       }
       // Create a new AsciiDoc copy with converted headings and sentinel
-      const converted = convertMarkdownHeadings(note.body);
+      const converted = convertMarkdownToAsciidoc(note.body);
       const body = appendSentinel(converted, {});
       const copy = await joplin.data.post(["notes"], null, {
         parent_id: note.parent_id,
@@ -346,7 +402,7 @@ async function registerCommands() {
       });
       if (!note) return;
       if (isAsciiDocNote(note.body)) return; // Already AsciiDoc
-      const converted = convertMarkdownHeadings(note.body);
+      const converted = convertMarkdownToAsciidoc(note.body);
       const newBody = appendSentinel(converted, {});
       await joplin.data.put(["notes", note.id], null, { body: newBody });
       // Force Joplin to reload the note with the custom editor
