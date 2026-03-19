@@ -507,6 +507,7 @@ joplin.plugins.register({
         await editors.addScript(handle, "./panel.js");
         await editors.addScript(handle, "./styles/editor.css");
         await editors.addScript(handle, "./styles/preview.css");
+        await editors.addScript(handle, "./styles/katex.min.css");
 
         // Handle note updates from Joplin
         await editors.onUpdate(handle, async (update: any) => {

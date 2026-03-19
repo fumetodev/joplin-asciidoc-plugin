@@ -1468,3 +1468,8 @@ html, body {
 #editor-pane .cm-editor {
 	background: var(--asciidoc-preview-bg, #fafafa);
 }
+
+/* KaTeX dark theme override */
+.dark-theme .katex {
+	color: var(--asciidoc-fg, #d4d4d4);
+}

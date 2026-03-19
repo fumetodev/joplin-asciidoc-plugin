@@ -2,6 +2,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemir
 import { Prec, RangeSetBuilder, StateEffect } from "@codemirror/state";
 import { normalizeImageTarget } from "../utils/image-target";
 import { type ImageInsertOptions, parseImageMacroLine, serializeImageBlock } from "../utils/image-macro";
+import { renderMath, type MathNotation } from "../utils/math-render";
 
 // Joplin resource URL cache for resolving :/resourceId patterns
 const resourceUrlCache = new Map<string, string>();
@@ -52,7 +53,20 @@ interface ContentBlockInfo {
   title: string;
 }
 
-type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo;
+interface StemBlockInfo {
+  type: "stem";
+  attrLine: number;   // line with [stem], [latexmath], or [asciimath]
+  openLine: number;   // line with opening ++++
+  closeLine: number;  // line with closing ++++
+  rawNotation: "stem" | "latexmath" | "asciimath"; // original attribute value
+}
+
+/** Resolve a raw stem notation to a concrete MathNotation for rendering. */
+function resolveStemNotation(raw: "stem" | "latexmath" | "asciimath"): MathNotation {
+  return raw === "stem" ? documentStemNotation : raw;
+}
+
+type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo;
 
 interface PreviewHeightCache {
   lineHeights: Map<number, number>;
@@ -328,6 +342,10 @@ function serializeBlockquote(author: string, content: string, hadAttributeLine: 
 
   lines.push("____", normalizedContent, "____");
   return lines.join("\n");
+}
+
+function serializeStemBlock(notation: string, expression: string): string {
+  return `[${notation}]\n++++\n${expression}\n++++`;
 }
 
 function deleteBlockRange(view: EditorView, blockFrom: number, blockTo: number) {
@@ -687,6 +705,95 @@ function getImageBlockForLine(doc: any, lineNumber: number): ImageBlockInfo | nu
     blockFrom,
     blockTo: imageLine.to,
   };
+}
+
+function openStemBlockEditorModal(
+  view: EditorView,
+  expression: string,
+  notation: "stem" | "latexmath" | "asciimath",
+  blockFrom: number,
+  blockTo: number,
+) {
+  const { overlay, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Math Block");
+
+  // ── Notation selector ──
+  const notationSelect = document.createElement("select");
+  notationSelect.className = "cm-lp-block-editor-input";
+  for (const opt of [
+    { value: "latexmath", label: "LaTeX Math" },
+    { value: "asciimath", label: "AsciiMath" },
+    { value: "stem", label: "stem (document default)" },
+  ]) {
+    const el = document.createElement("option");
+    el.value = opt.value;
+    el.textContent = opt.label;
+    notationSelect.appendChild(el);
+  }
+  notationSelect.value = notation;
+  body.appendChild(makeBlockEditorField("Notation", notationSelect));
+
+  // ── Math expression textarea ──
+  const mathInput = document.createElement("textarea");
+  mathInput.className = "cm-lp-block-editor-textarea cm-lp-block-editor-textarea-code";
+  mathInput.value = expression;
+  mathInput.spellcheck = false;
+  mathInput.placeholder = notation === "asciimath"
+    ? "e.g., sum_(i=1)^n i = (n(n+1))/2"
+    : "e.g., \\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}";
+  body.appendChild(makeBlockEditorField("Expression", mathInput));
+
+  // ── Live preview panel ──
+  const previewLabel = document.createElement("span");
+  previewLabel.className = "cm-lp-block-editor-label";
+  previewLabel.textContent = "Preview";
+  body.appendChild(previewLabel);
+
+  const preview = document.createElement("div");
+  preview.className = "cm-lp-stemblock-preview";
+  preview.style.cssText = "padding:16px;text-align:center;min-height:2em;" +
+    "border:1px solid var(--asciidoc-border,#ddd);border-radius:4px;margin-top:4px";
+
+  const updatePreview = () => {
+    const n = notationSelect.value as MathNotation | "stem";
+    preview.innerHTML = renderMath(mathInput.value, n === "stem" ? documentStemNotation : n, true);
+    mathInput.placeholder = n === "asciimath"
+      ? "e.g., sum_(i=1)^n i = (n(n+1))/2"
+      : "e.g., \\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}";
+  };
+  updatePreview();
+  mathInput.addEventListener("input", updatePreview);
+  notationSelect.addEventListener("change", updatePreview);
+  body.appendChild(preview);
+
+  // ── Footer buttons ──
+  const deleteBtn = makeBlockEditorButton("Delete Math Block");
+  deleteBtn.classList.add("cm-lp-block-editor-btn-danger");
+  deleteBtn.addEventListener("click", (e) => {
+    consumeEvent(e);
+    deleteBlockRange(view, blockFrom, blockTo);
+    close();
+  });
+  footerLeft.appendChild(deleteBtn);
+
+  const cancelBtn = makeBlockEditorButton("Cancel");
+  cancelBtn.addEventListener("click", (e) => { consumeEvent(e); close(); });
+
+  const saveBtn = makeBlockEditorButton("Save", "primary");
+  saveBtn.addEventListener("click", (e) => {
+    consumeEvent(e);
+    const n = notationSelect.value;
+    view.dispatch({
+      changes: {
+        from: blockFrom,
+        to: blockTo,
+        insert: serializeStemBlock(n, mathInput.value),
+      },
+    });
+    close();
+  });
+
+  footerRight.append(cancelBtn, saveBtn);
+  requestAnimationFrame(() => { overlay.focus(); mathInput.focus(); });
 }
 
 function openImageEditorModal(view: EditorView, info: ImageBlockInfo) {
@@ -1104,6 +1211,28 @@ function buildContentBlockPreviewLines(
       }
     }
 
+    // Detect stem blocks: [stem|latexmath|asciimath] followed by ++++
+    const stemInnerMatch = trimmedText.match(/^\[(stem|latexmath|asciimath)\]$/);
+    if (stemInnerMatch && idx + 1 < trimmed.length) {
+      const nextTrimmed = trimmed[idx + 1].text.trim();
+      if (/^\+{4,}$/.test(nextTrimmed)) {
+        let stemEnd = -1;
+        for (let j = idx + 2; j < trimmed.length; j++) {
+          if (/^\+{4,}$/.test(trimmed[j].text.trim())) { stemEnd = j; break; }
+        }
+        if (stemEnd >= 0) {
+          const stemLines: string[] = [];
+          for (let j = idx + 2; j < stemEnd; j++) stemLines.push(trimmed[j].text);
+          const resolvedNotation = resolveStemNotation(stemInnerMatch[1] as "stem" | "latexmath" | "asciimath");
+          const mathHtml = `<div class="cm-lp-stemblock" style="margin:0.4em 0;padding:0.6em;text-align:center;border:1px solid var(--lp-special-block-border,rgba(128,128,128,0.15));border-radius:4px">${renderMath(stemLines.join("\n"), resolvedNotation, true)}</div>`;
+          collapsed.push({ html: mathHtml, empty: false });
+          previousWasEmpty = false;
+          idx = stemEnd + 1;
+          continue;
+        }
+      }
+    }
+
     if (!trimmedText) {
       if (!previousWasEmpty && collapsed.length > 0) {
         collapsed.push({ html: "&nbsp;", empty: true });
@@ -1143,6 +1272,7 @@ function editorHasActiveFocus(view: EditorView): boolean {
 function getBlockStartLineNumber(block: BlockInfo): number {
   if (block.type === "code" && block.attrLine > 0) return block.attrLine;
   if (block.type === "blockquote" && block.attrLine > 0) return block.attrLine;
+  if (block.type === "stem") return block.attrLine;
   if (block.type === "image" && block.titleLine > 0) return block.titleLine;
   if (block.type === "contentblock" && block.titleLine > 0) return block.titleLine;
   if (block.type === "contentblock" && block.attrLine > 0) return block.attrLine;
@@ -1152,6 +1282,7 @@ function getBlockStartLineNumber(block: BlockInfo): number {
 
 function getBlockEndLineNumber(block: BlockInfo): number {
   if (block.type === "image") return block.imageLine;
+  if (block.type === "stem") return block.closeLine;
   return block.closeLine;
 }
 
@@ -1173,6 +1304,16 @@ function openPreviewBlockModal(view: EditorView, blockInfo: { block: BlockInfo; 
   const { block, blockStart, blockEnd } = blockInfo;
   const blockFrom = view.state.doc.line(blockStart).from;
   const blockTo = view.state.doc.line(blockEnd).to;
+
+  if (block.type === "stem") {
+    let mathContent = "";
+    for (let j = block.openLine + 1; j < block.closeLine; j++) {
+      if (mathContent) mathContent += "\n";
+      mathContent += view.state.doc.line(j).text;
+    }
+    openStemBlockEditorModal(view, mathContent, block.rawNotation, blockFrom, blockTo);
+    return true;
+  }
 
   if (block.type === "image") {
     openImageEditorModal(view, {
@@ -1393,6 +1534,33 @@ function detectBlocks(doc: any): BlockInfo[] {
             openLine: i,
             closeLine,
             title: "",
+          });
+          i = closeLine + 1;
+          continue;
+        }
+      }
+    }
+
+    // Detect stem block: [stem|latexmath|asciimath] followed by ++++
+    const stemAttrMatch = text.match(/^\[(stem|latexmath|asciimath)\]$/);
+    if (stemAttrMatch && i + 1 <= doc.lines) {
+      const nextText = doc.line(i + 1).text.trim();
+      if (/^\+{4,}$/.test(nextText)) {
+        const rawNotation = stemAttrMatch[1] as "stem" | "latexmath" | "asciimath";
+        let closeLine = -1;
+        for (let j = i + 2; j <= doc.lines; j++) {
+          if (/^\+{4,}$/.test(doc.line(j).text.trim())) {
+            closeLine = j;
+            break;
+          }
+        }
+        if (closeLine > 0) {
+          blocks.push({
+            type: "stem",
+            attrLine: i,
+            openLine: i + 1,
+            closeLine,
+            rawNotation,
           });
           i = closeLine + 1;
           continue;
@@ -1943,6 +2111,26 @@ let footnoteNumberMap: Map<string, number> = new Map(); // id → first assigned
 let footnoteNextNumber = 1;
 let footnoteSeqCounter = 0; // incremented per renderInline footnote match
 
+// STEM/math rendering state
+let documentStemNotation: MathNotation = "asciimath"; // AsciiDoc default
+
+function detectStemAttribute(doc: any): { hasStem: boolean; notation: MathNotation } {
+  // Scan document header (lines before first blank line, up to 50 lines)
+  for (let i = 1; i <= Math.min(doc.lines, 50); i++) {
+    const text = doc.line(i).text.trim();
+    if (!text) break; // first blank line ends the header
+    const m = text.match(/^:stem:\s*(.*)$/);
+    if (m) {
+      const value = m[1].trim().toLowerCase();
+      return {
+        hasStem: true,
+        notation: value === "latexmath" ? "latexmath" : "asciimath",
+      };
+    }
+  }
+  return { hasStem: false, notation: "asciimath" };
+}
+
 function getFootnoteNumber(id: string, text: string): number {
   if (id && footnoteNumberMap.has(id)) {
     return footnoteNumberMap.get(id)!;
@@ -1958,7 +2146,27 @@ function resetFootnoteNumbering() {
   footnoteSeqCounter = 0;
 }
 
+// Matches stem:[], latexmath:[], asciimath:[] with one level of nested brackets
+const STEM_INLINE_REGEX = /(?:stem|latexmath|asciimath):\[((?:[^\[\]]*(?:\[[^\]]*\])?[^\[\]]*)*)\]/g;
+
 function renderInline(text: string): string {
+  // ── Phase 1: Extract stem macros before any processing ──
+  const stemPlaceholders: string[] = [];
+  const STEM_TOKEN = "\x00STEM";
+
+  text = text.replace(STEM_INLINE_REGEX, (match, content) => {
+    const macroName = match.substring(0, match.indexOf(":"));
+    const notation: MathNotation =
+      macroName === "latexmath" ? "latexmath" :
+      macroName === "asciimath" ? "asciimath" :
+      documentStemNotation; // stem:[] uses document default
+    const html = `<span class="cm-lp-math-inline">${renderMath(content, notation, false)}</span>`;
+    const idx = stemPlaceholders.length;
+    stemPlaceholders.push(html);
+    return `${STEM_TOKEN}${idx}\x00`;
+  });
+
+  // ── Phase 2: Existing inline processing ──
   let result = escapeHtml(text);
 
   // --- Unconstrained bold/italic (double markers, no word-boundary needed) ---
@@ -2074,6 +2282,14 @@ function renderInline(text: string): string {
     return decoded !== entity ? escapeHtml(decoded) : entity;
   });
 
+  // ── Phase 3: Restore stem placeholders ──
+  for (let idx = 0; idx < stemPlaceholders.length; idx++) {
+    result = result.replace(
+      escapeHtml(`${STEM_TOKEN}${idx}\x00`),
+      stemPlaceholders[idx],
+    );
+  }
+
   return result;
 }
 
@@ -2081,6 +2297,53 @@ let _entityDecoder: HTMLTextAreaElement | null = null;
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// =====================================================
+// Stem Block Preview Widget (cursor outside block)
+// =====================================================
+
+class StemBlockPreviewWidget extends WidgetType {
+  constructor(
+    readonly expression: string,
+    readonly rawNotation: "stem" | "latexmath" | "asciimath",
+    readonly lineFrom: number,
+    readonly blockFrom: number,
+    readonly blockTo: number,
+  ) { super(); }
+
+  toDOM(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-lp-stemblock";
+    wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
+
+    attachBlockModalHandlers(wrap, (view) => {
+      openStemBlockEditorModal(view, this.expression, this.rawNotation, this.blockFrom, this.blockTo);
+    });
+
+    const content = document.createElement("div");
+    content.className = "cm-lp-stemblock-content";
+    content.innerHTML = renderMath(this.expression, resolveStemNotation(this.rawNotation), true);
+    wrap.appendChild(content);
+    return wrap;
+  }
+
+  eq(other: StemBlockPreviewWidget): boolean {
+    return this.expression === other.expression
+      && this.rawNotation === other.rawNotation
+      && this.lineFrom === other.lineFrom
+      && this.blockFrom === other.blockFrom
+      && this.blockTo === other.blockTo;
+  }
+
+  ignoreEvent(event: Event): boolean {
+    return event.type === "mousedown"
+      || event.type === "mouseup"
+      || event.type === "mousemove"
+      || event.type === "click"
+      || event.type === "selectstart"
+      || event.type === "dragstart";
+  }
 }
 
 // =====================================================
@@ -2956,6 +3219,10 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
   const rawBaseHeightPx = measureRawLineHeightPx(view);
   const blocks = detectBlocks(doc);
 
+  // Detect :stem: document attribute for math notation default
+  const stemInfo = detectStemAttribute(doc);
+  documentStemNotation = stemInfo.notation;
+
   // Reset footnote numbering for this render pass
   resetFootnoteNumbering();
 
@@ -3208,6 +3475,36 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             }
           }
         }
+      } else if (block.type === "stem") {
+        if (!cursorInBlock) {
+          // Extract math content between ++++ delimiters
+          let mathContent = "";
+          for (let j = block.openLine + 1; j < block.closeLine; j++) {
+            if (mathContent) mathContent += "\n";
+            mathContent += doc.line(j).text;
+          }
+          const firstLine = doc.line(blockStart);
+          builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
+          builder.add(firstLine.from, firstLine.to, Decoration.replace({
+            widget: new StemBlockPreviewWidget(
+              mathContent,
+              block.rawNotation,
+              firstLine.from,
+              fromPos,
+              toPos,
+            ),
+          }));
+          // Hide remaining lines
+          for (let j = blockStart + 1; j <= blockEnd; j++) {
+            const line = doc.line(j);
+            builder.add(line.from, line.from, hiddenLineDecoration);
+            if (line.from < line.to) {
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+            }
+          }
+        }
+        // When cursorInBlock: raw text shown. Height stabilization handled
+        // by the generic non-code path at the top of the block processing.
       }
 
       i = blockEnd + 1;
@@ -3330,7 +3627,7 @@ const livePreviewPlugin = ViewPlugin.fromClass(
           const blockEnd = getBlockEndLineNumber(block);
           if (cursorLine >= blockStart && cursorLine <= blockEnd) {
             // Don't auto-open for content blocks (they show raw) or images (complex)
-            if (block.type === "code" || block.type === "table" || block.type === "blockquote") {
+            if (block.type === "code" || block.type === "table" || block.type === "blockquote" || block.type === "stem") {
               // Delay slightly so CM6 finishes its update cycle
               setTimeout(() => {
                 if (blockEditorOverlay) return; // Modal already opened
@@ -3726,6 +4023,39 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lp-admon-important .cm-lp-admon-label": { color: "#a94442" },
   ".cm-lp-admon-question": { borderLeftColor: "#f1c40f", background: "rgba(241,196,15,0.08)" },
   ".cm-lp-admon-question .cm-lp-admon-label": { color: "#9a7b0a" },
+
+  // Stem/Math Block Preview
+  ".cm-lp-stemblock": {
+    display: "block",
+    width: "100%",
+    margin: "0.5em 0",
+    padding: "0.8em 1em",
+    textAlign: "center",
+    background: "var(--lp-special-block-bg, rgba(0,0,0,0.03))",
+    borderRadius: "4px",
+    border: "1px solid var(--lp-special-block-border, rgba(128,128,128,0.15))",
+    overflow: "auto",
+    cursor: "pointer",
+    boxSizing: "border-box",
+  },
+  ".cm-lp-stemblock-content": {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: "1.5em",
+  },
+  ".cm-lp-math-inline": {
+    display: "inline",
+    verticalAlign: "baseline",
+  },
+  ".cm-lp-math-error": {
+    color: "#d9534f",
+    fontSize: "0.85em",
+    fontStyle: "italic",
+  },
+  ".cm-lp-math-empty": {
+    fontStyle: "italic",
+  },
 
   // Code Block Preview
   ".cm-lp-codeblock": {

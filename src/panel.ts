@@ -211,9 +211,12 @@ function handleEditorCommand(e: Event) {
       selection: { anchor: from + before.length, head: to + before.length },
     });
   } else if (type === "insert") {
+    const cursorPos = (e as CustomEvent).detail.cursorOffset != null
+      ? from + (e as CustomEvent).detail.cursorOffset
+      : from + text.length;
     editorView.dispatch({
       changes: { from, insert: text },
-      selection: { anchor: from + text.length },
+      selection: { anchor: cursorPos },
     });
   } else if (type === "heading") {
     const lineObj = editorView.state.doc.lineAt(from);

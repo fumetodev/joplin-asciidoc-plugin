@@ -11,6 +11,8 @@ import {
   handleBlock,
   handleImage as doImage,
   handleLink as doLink,
+  handleMath,
+  mathNotations,
   symbolCategories,
   insertText,
   positionDropdown,
@@ -50,6 +52,7 @@ interface DropdownState {
   source: boolean;
   table: boolean;
   blocks: boolean;
+  math: boolean;
   image: boolean;
   link: boolean;
   template: boolean;
@@ -69,6 +72,7 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
     source: false,
     table: false,
     blocks: false,
+    math: false,
     image: false,
     link: false,
     template: false,
@@ -165,6 +169,7 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
       case "source": showSourceDropdown(); break;
       case "table": showTableDropdown(); break;
       case "blocks": showBlocksDropdown(); break;
+      case "math": showMathDropdown(); break;
       case "image": showImageDropdown(); break;
       case "link": showLinkDropdown(); break;
       case "template": showTemplateDropdown(); break;
@@ -268,6 +273,23 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
       const btn = document.createElement("button");
       btn.textContent = item.label;
       btn.addEventListener("click", () => { handleBlock(item.type); closeAll(); });
+      dd.appendChild(btn);
+    }
+    wrap.appendChild(dd);
+    positionDropdown(dd);
+  }
+
+  // -- Math --
+  function showMathDropdown() {
+    const wrap = wrapEls.get("math")!;
+    const dd = document.createElement("div");
+    dd.className = "split-dropdown open";
+    dd.setAttribute("role", "menu");
+    for (const item of mathNotations) {
+      const btn = document.createElement("button");
+      btn.className = "admonition-item";
+      btn.textContent = item.label;
+      btn.addEventListener("click", () => { handleMath(item.value, item.block); closeAll(); });
       dd.appendChild(btn);
     }
     wrap.appendChild(dd);
@@ -1062,6 +1084,23 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
     contentRow.appendChild(btn);
   }
   wrapper.appendChild(createRibbonSection("Content", contentRow));
+
+  // -----------------------------------------------------------------------
+  // Math section
+  // -----------------------------------------------------------------------
+
+  const mathRow = document.createElement("div");
+  mathRow.className = "ribbon-row";
+
+  mathRow.appendChild(createSplitButton(
+    "math",
+    `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><text x="4" y="18" font-size="16" font-family="serif" font-style="italic" fill="currentColor" stroke="none">\u03A3</text></svg>`,
+    "Insert Inline Math",
+    () => { handleMath("latexmath", false); closeAll(); },
+    "Math options",
+  ));
+
+  wrapper.appendChild(createRibbonSection("Math", mathRow));
 
   // -----------------------------------------------------------------------
   // Media section

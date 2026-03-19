@@ -65,9 +65,9 @@ export function wrapSelection(before: string, after: string) {
   }));
 }
 
-export function insertText(text: string) {
+export function insertText(text: string, cursorOffset?: number) {
   window.dispatchEvent(new CustomEvent("editor-command", {
-    detail: { type: "insert", text },
+    detail: { type: "insert", text, cursorOffset },
   }));
 }
 
@@ -148,6 +148,26 @@ export function handleBlock(blockType: string) {
   };
   insertText(blocks[blockType] || "");
 }
+
+export function handleMath(type: "stem" | "latexmath" | "asciimath", block: boolean) {
+  if (block) {
+    const text = `\n[${type}]\n++++\n\n++++\n`;
+    // Place cursor on the empty line between ++++ delimiters
+    const cursorOffset = `\n[${type}]\n++++\n`.length;
+    insertText(text, cursorOffset);
+  } else {
+    wrapSelection(`${type}:[`, `]`);
+  }
+}
+
+export const mathNotations = [
+  { label: "LaTeX Math (inline)", value: "latexmath" as const, block: false },
+  { label: "AsciiMath (inline)", value: "asciimath" as const, block: false },
+  { label: "Stem (inline, doc default)", value: "stem" as const, block: false },
+  { label: "LaTeX Math (block)", value: "latexmath" as const, block: true },
+  { label: "AsciiMath (block)", value: "asciimath" as const, block: true },
+  { label: "Stem (block, doc default)", value: "stem" as const, block: true },
+];
 
 export function handleInline(macroType: string) {
   switch (macroType) {

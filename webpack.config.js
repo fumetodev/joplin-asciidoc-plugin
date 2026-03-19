@@ -49,6 +49,8 @@ module.exports = (env, argv) => {
           patterns: [
             { from: "src/styles", to: "styles" },
             { from: "src/manifest.json", to: "manifest.json" },
+            { from: "node_modules/katex/dist/katex.min.css", to: "styles/katex.min.css" },
+            { from: "node_modules/katex/dist/fonts", to: "styles/fonts" },
           ],
         }),
       ],

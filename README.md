@@ -66,6 +66,7 @@ The ribbon toolbar is organized into four tabs:
 | Source Block | Dropdown with 12 languages (JS, TS, Python, Rust, Java, HTML, CSS, JSON, Bash, SQL, Go, Ruby) |
 | Table | Row/column picker (default 3x3) |
 | Block | Sidebar, Example, Collapsible, Page Break |
+| Math | Dropdown: LaTeX/AsciiMath/Stem inline and block options. Default action inserts inline LaTeX. |
 | Bullet List | Unordered list (`*`) |
 | Numbered List | Ordered list (`.`) |
 | Checklist | Checkbox list (`* [ ]` / `* [x]`) |
@@ -124,6 +125,8 @@ The editor renders AsciiDoc constructs inline as you type. Move your cursor to a
 **Footnotes** — Auto-numbered superscript references `[1]`, `[2]`, `[3]`. Named footnotes (`footnote:id[text]`) share numbers when referenced. Click to see a floating popup with the footnote text.
 
 **Cross-references** — `<<noteId,Display Text>>` renders as a clickable link. Xrefs with section anchors (`<<noteId#section,text>>`) include a toggle to preview the linked section inline.
+
+**Math / STEM** — Inline math via `stem:[]`, `latexmath:[]`, or `asciimath:[]` macros renders via KaTeX directly in the preview. Display-mode block math uses `[latexmath]` / `[asciimath]` / `[stem]` attribute followed by `++++` delimiters. The `:stem:` document attribute controls the default notation for `stem:[]` macros (`latexmath` or `asciimath`). AsciiMath expressions are auto-converted to LaTeX before rendering. Click a rendered block equation to edit in a modal with live preview and notation selector.
 
 **Collapsible blocks** — `[%collapsible]` blocks render with a clickable caret to expand/collapse.
 
@@ -212,7 +215,7 @@ The plugin consists of two webpack bundles:
 | Bundle | Target | Size | Contains |
 |--------|--------|------|----------|
 | `index.js` | Node (plugin sandbox) | ~10 KB | Plugin registration, commands, settings, IPC handlers, Asciidoctor.js rendering |
-| `panel.js` | Web (webview) | ~558 KB | CodeMirror 6 editor, live-preview decoration engine, toolbar, IPC client |
+| `panel.js` | Web (webview) | ~847 KB | CodeMirror 6 editor, live-preview decoration engine, KaTeX math rendering, toolbar, IPC client |
 
 AsciiDoc notes are identified by a `` ```asciidoc-settings `` sentinel block appended to the note body. This block also stores document attributes as JSON.
 
