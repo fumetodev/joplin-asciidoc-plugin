@@ -2035,9 +2035,8 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
   if (bulletMatch) {
     const depth = bulletMatch[1].length;
     const pad = (depth - 1) * 1.5;
-    const markerHtml = depth === 1
-      ? `<span class="cm-lp-list-marker cm-lp-bullet-marker" aria-hidden="true"></span>`
-      : `<span class="cm-lp-list-marker cm-lp-bullet-marker cm-lp-bullet-marker-nested" aria-hidden="true"></span>`;
+    const bulletClass = depth === 1 ? "" : depth === 2 ? " cm-lp-bullet-marker-nested" : " cm-lp-bullet-marker-square";
+    const markerHtml = `<span class="cm-lp-list-marker cm-lp-bullet-marker${bulletClass}" aria-hidden="true"></span>`;
     return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em">${markerHtml}${renderInline(bulletMatch[2])}</span>`;
   }
 
@@ -4387,16 +4386,21 @@ const livePreviewTheme = EditorView.theme({
 
   // Lists
   ".cm-lp-list": {
-    display: "inline",
+    display: "inline-flex",
+    alignItems: "baseline",
+    width: "100%",
     margin: "0",
+    boxSizing: "border-box",
   },
   ".cm-lp-list-marker": {
-    display: "inline-block",
+    display: "inline-flex",
     width: "1.2em",
+    minWidth: "1.2em",
     textAlign: "center",
     flexShrink: "0",
     color: "var(--asciidoc-fg, #333)",
     marginRight: "0.3em",
+    justifyContent: "center",
   },
   ".cm-lp-bullet-marker": {
     display: "inline-flex",
@@ -4418,6 +4422,12 @@ const livePreviewTheme = EditorView.theme({
     background: "none",
     border: "1.5px solid currentColor",
     boxSizing: "border-box",
+  },
+  ".cm-lp-bullet-marker-square::before": {
+    width: "0.35em",
+    height: "0.35em",
+    background: "currentColor",
+    borderRadius: "0",
   },
 
   // Strikethrough
