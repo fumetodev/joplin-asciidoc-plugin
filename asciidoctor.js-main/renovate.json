@@ -1,0 +1,44 @@
+{
+  "branchPrefix": "renovate/",
+  "username": "renovate-release",
+  "gitAuthor": "Renovate Bot <bot@renovateapp.com>",
+  "platform": "github",
+  "repositories": [
+    "asciidoctor/asciidoctor.js"
+  ],
+  "labels": [
+    ":link: dependencies"
+  ],
+  "commitMessagePrefix": ":arrow_up:",
+  "separateMajorMinor": true,
+  "extends": [
+    ":preserveSemverRanges",
+    "group:all",
+    ":maintainLockFilesMonthly"
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "pacote",
+        "libnpmpublish"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": [
+        "asciidoctor-opal-runtime",
+        "opal-compiler"
+      ],
+      "enabled": false
+    }
+  ],
+  "lockFileMaintenance": {
+    "extends": [
+      "group:all"
+    ],
+    "commitMessageAction": "Update"
+  }
+}

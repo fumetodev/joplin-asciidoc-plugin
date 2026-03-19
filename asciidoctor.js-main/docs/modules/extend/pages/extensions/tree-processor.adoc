@@ -1,0 +1,30 @@
+= Tree Processor Extension Example
+
+Purpose::
+Make the document GDPR compliant by replacing the first block (paragraph) with the sentence "GDPR compliant :)"
+
+== sample-gdpr-doc.adoc
+
+```adoc
+= Privacy agreement
+
+We track you for your own safety!
+```
+
+== GDPRTreeProcessor
+
+.gdpr-tree-processor.js
+```js
+include::example$extensions/gdpr-tree-processor.js[]
+```
+
+== Usage
+
+```js
+const asciidoctor = require('asciidoctor')()
+const registry = asciidoctor.Extensions.create()
+require('./gdpr-tree-processor.js')(registry)
+
+const doc = asciidoctor.convertFile('sample-gdpr-doc.adoc', { 'extension_registry': registry })
+console.log(doc.getBlocks()[0].getSource()) // 'GDPR compliant :)'
+```

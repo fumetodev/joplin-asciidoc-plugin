@@ -1,0 +1,31 @@
+= Include Processor Extension Example
+
+Purpose::
+Return the content "foo" if the file extension of the include directive target is "foo".
+
+== sample-foo-doc.adoc
+
+```adoc
+\include::./test.foo[]
+```
+
+== FooIncludeProcessor
+
+.foo-include-processor.js
+```js
+include::example$extensions/foo-include-processor.js[]
+```
+
+== Usage
+
+```js
+const asciidoctor = require('asciidoctor')()
+const registry = asciidoctor.Extensions.create()
+require('./foo-include-processor.js')(registry)
+
+const html = asciidoctor.convert('include::./test.foo[]', { extension_registry: registry })
+console.log(html)
+// <div class="paragraph">
+// <p>foo</p>
+// </div
+```

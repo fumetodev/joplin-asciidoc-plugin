@@ -1868,7 +1868,7 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
     const depth = bulletMatch[1].length;
     const pad = (depth - 1) * 1.5;
     const markerHtml = depth === 1
-      ? `<span class="cm-lp-list-marker cm-lp-bullet-marker">\u2022</span>`
+      ? `<span class="cm-lp-list-marker cm-lp-bullet-marker" aria-hidden="true"></span>`
       : `<span class="cm-lp-list-marker cm-lp-bullet-marker cm-lp-bullet-marker-nested" aria-hidden="true"></span>`;
     return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em">${markerHtml}${renderInline(bulletMatch[2])}</span>`;
   }
@@ -4069,22 +4069,24 @@ const livePreviewTheme = EditorView.theme({
     marginRight: "0.3em",
   },
   ".cm-lp-bullet-marker": {
-    fontSize: "1em",
-    lineHeight: "1.6",
-  },
-  ".cm-lp-bullet-marker-nested": {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     lineHeight: "1.6",
   },
-  ".cm-lp-bullet-marker-nested::before": {
+  ".cm-lp-bullet-marker::before": {
     content: '""',
     display: "inline-block",
+    width: "0.35em",
+    height: "0.35em",
+    background: "currentColor",
+    borderRadius: "50%",
+  },
+  ".cm-lp-bullet-marker-nested::before": {
     width: "0.42em",
     height: "0.42em",
+    background: "none",
     border: "1.5px solid currentColor",
-    borderRadius: "50%",
     boxSizing: "border-box",
   },
 

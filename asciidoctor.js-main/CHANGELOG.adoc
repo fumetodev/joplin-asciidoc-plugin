@@ -1,0 +1,368 @@
+= Asciidoctor.js Changelog
+:uri-repo: https://github.com/asciidoctor/asciidoctor.js
+:icons: font
+:source-highlighter: highlight.js
+
+This document provides a high-level view of the changes introduced in Asciidoctor.js by release.
+For a detailed view of what has changed, refer to the {uri-repo}/commits/main[commit history] on GitHub.
+
+== Unreleased
+
+
+== v3.0.4 (2024-02-12)
+
+Bug Fixes::
+
+* Default condition should be last one in conditional exports otherwise the following error is thrown: "Module not found: Error: Default condition should be last one" (#1722) - thanks @roseckyj & @korva
+
+Infrastructure::
+
+* Update development dependencies
+
+== v3.0.3 (2024-01-13)
+
+Bug Fixes::
+
+* Fix types exports in `package.json` - thanks @sinedied
+* Addd `context` and `node_name` accessor in the type definition - thanks @RayOffiah
+
+Infrastructure::
+
+* Update development dependencies
+
+== v3.0.2 (2023-06-24)
+
+Breaking Changes::
+
+* Remove `Asciidoctor` namespace in TypeScript:
++
+[source,js]
+----
+import asciidoctor, { Document } from '@asciidoctor/core'
+
+const Asciidoctor = asciidoctor()
+Asciidoctor.convert('Hello _world_')
+----
+* Publish `@asciidoctor/core` as an ES6 module
+
+Bug Fixes::
+
+* Strip alternate BOM that uses char code 65279 when input passes through a Buffer (#1344)
+* Map `Document.append` (#1681)
+* Bridge converter pass as option (#1666)
+* Add `getSectionNumeral()` function by @benjaminleonard (#1659)
+* Fix `getDocinfo` and `findBy` type definition (#1621)
+* Bridge common Ruby object methods (#1491)
+* `parseContent` now calls `toHash` on attrs (#1519)
+
+Improvements::
+
+* Map `this.super.<method>` to call the parent function (#1682)
+* Map `AbstractBlock.getContentModel` and `AbstractBlock.setContentModel` (#1680)
+* Map `Document.getSyntaxHighlighter` (#1667)
+* Map `CompositeConverter#convert` (#1649)
+* Simplify table option checks by @mojavelinux (#1656)
+* Support Stream.Writable as `to_file` (#1624)
++
+[source,js]
+----
+const data = []
+const writableStream = new Writable({
+  write (chunk, encoding, callback) {
+    data.push(chunk.toString())
+    callback()
+  }
+})
+const doc = asciidoctor.convert(text, { to_file: writableStream, safe: safe })
+const html = data.join('')
+----
+
+Infrastructure::
+
+* Upgrade GraalVM to 20.1.0 (#1035)
+
+Documentation::
+
+* Improve contributing guide by @cunka (#1676)
+* Remove call to `convert()` on return value of process method for inline macro extension by @mojavelinux (#1653)
+
+== v2.2.0 (2020-04-25)
+
+Bug Fixes::
+
+* Fix the Asciidoctor CLI provided by the `asciidoctor` package (#846) - thanks @thorstenkampe
+* `AbstractNode.hasSection` now returns false for anything that isn't itself a `Section` (#840) - thanks @henriette-einstein
+* Properly assign backend traits on converter instances (#904)
+* Bridge `Converter.handles?` method (#906)
+* Add or bridge the `Converter.respond_to?` method (#908)
+* Add or bridge the `Converter.composed` method (#907)
+* `AbstractNode.getAttributes` now returns `undefined` when the value is `Opal.nil` (#920)
+
+Improvements::
+
+* Upgrade `@asciidoctor/cli` in the `asciidoctor` package to 3.4.0 (#902)
+* Add a built-in template converter which support out-of-the-box the following template engines (optional dependency):
+** Pug
+** Nunjucks
+** EJS
+** Handlebars
+* Map `Document.restoreAttributes` (#843)
+* Map an internal API `Document.playbackAttributes` (#844)
+* Map `Table`, `Table.Rows`, `Table.Column` and `Table.Cell` (#848) - thanks @henriette-einstein
+* Map `Table.Cell.getInnerDocument` (#901)
+* Map `AbstractNode.resolveSubstitutions`, `AbstractBlock.resolveBlockSubstitutions` and `AbstractNode.resolvePassSubstitutions` (#845)
+* Map `ConverterFactory.getRegistry` (#909)
++
+[source,js]
+----
+class BlankConverter {
+  convert () {
+    return ''
+  }
+}
+asciidoctor.ConverterFactory.register(new BlankConverter(), ['blank'])
+const registry = asciidoctor.ConverterFactory.getRegistry()
+registry.blank.convert()
+----
+* Map `ConverterFactory.for` (#910)
++
+[source,js]
+----
+const builtinHtml5Converter = asciidoctor.ConverterFactory.for('html5')
+builtinHtml5Converter.convert()
+
+asciidoctor.ConverterFactory.for('foo') // undefined
+----
+
+Infrastructure::
+
+* Publish binaries of the `asciidoctor` CLI on GitHub releases (#929)
+* Upgrade development dependencies
+** Bump `libnpmpublish` from 1.1.1 to 3.0.0 (#863)
+** Bump `cross-env` from 5.1.4 to 6.0.3 in /packages/core (#879)
+** Bump `dtslint` from 2.0.3 to 3.4.0 in /packages/core (#888) (#871)
+** Bump `@types/node` from 12.7.8 to 13.13.4 in /packages/core (#889) (#874) (#866) (#932) (#934) (#938) (#947)
+** Bump `documentation` from 12.1.3 to 12.3.0 in /packages/core (#882) (#897) (#903)
+** Bump `sinon` from 5.0.6 to 8.1.1 (#872)
+** Bump `puppeteer` from 1.18.0 to 2.1.1 in /packages/core (#876)
+** Bump `eslint` from 5.12.1 to 6.8.0 in /packages/core (#877)
+** Bump `standard` from 12.0.1 to 14.3.3 (#862)
+** Bump `standard` from 12.0.1 to 14.3.3 in /packages/core (#870)
+** Bump `mocha` from 6.1.4 to 7.1.2 in /packages/core (#864) (#946)
+** Bump `mocha` from 5.1.1 to 7.1.2 (#867) (#945)
+** Bump `chai` from 4.1.2 to 4.2.0 in /packages/core (#868)
+** Bump `chai` from 4.1.2 to 4.2.0 (#869)
+** Bump `acorn` from 5.7.3 to 5.7.4 in /packages/core (#860)
+** Bump `acorn` from 6.1.1 to 6.4.1 (#859)
+** Bump `ejs` from 3.0.1 to 3.0.2 in /packages/core (#922)
+** Bump `pkg` from 4.4.7 to 4.4.8 in /packages/asciidoctor (#948)
+* Add an explicit failure if the regular expression does not match in tests (#890)
+* Replace a Ruby example with a JavaScript example in the JSDoc (#856)
+* Increase tests timeout (#857)
+* Fix the `test:graalvm` task on macOS (#840)
+* Keep `.dts` directory to workaround an issue with npm/Travis (#842)
+* Test types against the built file (not the dist file) (#841)
+* Build on GitHub Actions (Windows) (#835)
+* Build the project on upstream changes (#839)
+* Fix newlines compatibility issues in tests (#838)
+* Add GitHub Actions badge (#836)
+* Run GitHub Actions on pull requests (#837)
+* Add the color extension in the documentation
+* Add the bytefield-svg extension in the documentation (#898)
+
+
+== v2.1.1 (2020-02-01)
+
+Bug Fixes::
+
+* Fix type definition for `AbstractBlock.getCaption` (#831) - thanks @cexbrayat
+* Return `undefined` if the style is `Opal.nil` on `AbstractBlock.getCaption` (#831) - thanks @cexbrayat
+* Add the missing `SyntaxHighlighter` type definition (#832)
+
+Improvements::
+
+* Deprecate `SyntaxHighlighter.for`, use `SyntaxHighlighter.get` instead (#832)
+* Upgrade `@asciidoctor/cli` in the `asciidoctor` package to 3.2.0
+
+Infrastructure::
+
+* Include the TypeScript Definition File in the npm packages 😅 (#827)
+
+
+== v2.1.0 (2020-01-26)
+
+Bug Fixes::
+
+* Return `undefined` if the style is `Opal.nil` on `AbstractBlock.getStyle`
+* Return `undefined` if the level is `Opal.nil` on `AbstractBlock.getLevel`
+* `Processor.resolveAttributes` can take a JSON, a boolean, a string, an array of strings or a list of strings as argument (#780)
++
+[source,js]
+----
+const registry = asciidoctor.Extensions.create(function () {
+  this.inlineMacro('deg', function () {
+    this.resolveAttributes('1:units', 'precision=1')
+    //this.resolveAttributes(['1:units', 'precision=1'])
+    //this.resolveAttributes({ '1:units': undefined, 'precision': 1 })
+    this.process(function (parent, target, attributes) {
+      // ...
+    })
+  })
+})
+----
+* Return `undefined` if the reftext is `Opal.nil` on an `AbstractNode.getReftext`
+* Attach `applySubstitutions` to `AbstractNode` instead of `AbstractBlock` (#793)
+* Deprecate `counterIncrement`, use `Document.incrementAndStoreCounter` instead (#792)
+* Add `chrome://` as a root path in a browser environment (#816)
+
+Improvements::
+
+* `Processor.resolvesAttributes` is deprecated (in favor of `resolveAttributes`)
+* Add a TypeScript Declaration file (#752, #775, #826, #825)
+* Map `AbstractBlock.setStyle` (#737)
+* Map `AbstractBlock.setTitle` (#737)
+* Map `AbstractBlock.getSourceLocation` (#737)
+* Map `Section.setLevel` (#737)
+* Map `SyntaxProcessorDsl.defaultAttributes` (#785)
++
+[source,js]
+----
+registry.inlineMacro('attrs', function () {
+  const self = this
+  self.matchFormat('short')
+  self.defaultAttributes({ 1: 'a', 2: 'b', 'foo': 'baz' })
+  self.positionalAttributes('a', 'b')
+  self.process((parent, target, attrs) => {
+    // ...
+  })
+})
+----
+* Initialize backend traits when registering a converter as an ES6 class or instance (#769)
++
+[source,js]
+----
+// register a converter as an ES6 class
+class TEIConverter {
+  constructor (backend, _) {
+    this.backend = backend
+    this.backendTraits = {
+      basebackend: 'xml',
+      outfilesuffix: '.xml',
+      filetype: 'xml',
+      htmlsyntax: 'xml'
+    }
+  }
+}
+asciidoctor.ConverterFactory.register(TEIConverter, ['tei'])
+----
++
+[source,js]
+----
+// register a converter as an ES6 class instance
+class TEIConverter {
+  constructor () {
+    this.backend = 'tei'
+    this.basebackend = 'xml'
+    this.outfilesuffix = '.xml'
+    this.filetype = 'xml'
+    this.htmlsyntax = 'xml'
+  }
+}
+asciidoctor.ConverterFactory.register(new TEIConverter(), ['tei'])
+----
+* Bridge ES6 class methods when registering a converter (#766)
++
+[source,js]
+----
+class DelegateConverter {
+  convert (node, transform) {
+    // delegate to the class methods
+    return this[`convert_${transform || node.node_name}`](node)
+  }
+
+  convert_embedded (node) {
+    return `<delegate>${node.getContent()}</delegate>`
+  }
+
+  convert_paragraph (node) {
+    return node.getContent()
+  }
+}
+asciidoctor.ConverterFactory.register(new DelegateConverter(), ['delegate'])
+----
+* Map `Asciidoctor.SafeMode` (#777)
++
+[source,js]
+----
+console.log(asciidoctor.SafeMode.UNSAFE) // 0
+console.log(asciidoctor.SafeMode.SAFE) // 1
+console.log(asciidoctor.SafeMode.SERVER) // 10
+console.log(asciidoctor.SafeMode.SECURE) // 20
+console.log(asciidoctor.SafeMode.getValueForName('secure')) // 20
+console.log(asciidoctor.SafeMode.getNameForValue(0)) // 'unsafe'
+console.log(asciidoctor.SafeMode.getNames()) // ['unsafe', 'safe', 'server', 'secure']
+----
+* Map `Processor.createParagraph` (#774)
+* Map `Processor.createOpenBlock` (#774)
+* Map `Processor.createExampleBlock` (#774)
+* Map `Processor.createPassBlock` (#774)
+* Map `Processor.createListingBlock` (#774)
+* Map `Processor.createLiteralBlock` (#774)
+* Map `Processor.createAnchor` (#774)
+* Map `Processor.createInlinePass` (#774)
+* Map `AbstractNode.setId` (#791)
+* Add `Block.create` to instantiate a new `Block` object (#796)
+* Add `Section#create` to instantiate a new `Section` object (#795)
+* Map `Document.incrementAndStoreCounter` (#792)
+* Map `Reader.advance` (#804)
+* Map `Document.setSourcemap` (#810)
++
+[source,js]
+----
+doc.setSourcemap(true)
+----
+* Map `Processor.getConfig` (#812)
+* Map `Processor.option` (#813)
++
+[source,js]
+----
+registry.inlineMacro('package', function () {
+  this.option('defaultPackageUrlFormat', 'https://packages.ubuntu.com/bionic/%s')
+  this.process(function (parent, target) {
+    const format = parent.getDocument().getAttribute('url-package-url-format', this.getConfig().defaultPackageUrlFormat)
+    return this.createInline(parent, 'anchor', target, { type: 'link', target: format.replace('%s', target), attributes: { window: '_blank' } })
+  })
+})
+----
+* Map `Asciidoctor.Callouts` (#814)
+* Map `Processor.parseAttributes` (#815)
+* Upgrade `@asciidoctor/cli` in the `asciidoctor` package to 3.1.1 (#820)
+* Add ES module interoperability when using TypeScript (#821)
+* Map `InlineProcessor.match` (#823)
+
+Infrastructure::
+
+* Run `npm audit fix`
+* Add tests on the docinfo feature (#734)
+* Add tests on a macro that creates a link (#745)
+* Upgrade development dependency `documentation` to 12.1.3 (#762)
+* Upgrade development dependency `mocha` to 6.1.4 (#739)
+* Upgrade development dependency `puppeteer` to 1.18.0 (#740)
+* Upgrade development dependency `sinon` to 7.3.2 (#741)
+* Upgrade development dependency `eslint-utils` from 1.3.1 to 1.4.2 (#749)
+* Add a sponsor button to GitHub that links to https://opencollective.com/asciidoctor[Open collective]
+* Use a semantic versioning comparison in tests (#754)
+* Add tests on multiple single-item menu macros in single line (#754)
+* Upgrade GraalVM to 19.3.0 (#772)
+* Enable tests on `findBy` API (with reject) (#806)
+* Build against the latest release of Asciidoctor 2.0.10 (#808)
+* Add tests on the TypeScript definition file (#800)
+
+Documentation::
+
+* Update the API JSDoc (#784, #782, #805)
+* Add the https://github.com/mogztter/asciidoctor-tweet[Tweet] and https://github.com/mogztter/asciidoctor-kroki[Kroki] extensions to extensions ecosystem page
+
+== Older releases
+
+For information about older releases, refer to the {uri-repo}/releases[releases page] on GitHub.

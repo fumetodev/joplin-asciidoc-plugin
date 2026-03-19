@@ -65,6 +65,22 @@
 	margin: 0.5em 0;
 }
 
+#preview-pane ul {
+	list-style-type: disc;
+}
+
+#preview-pane ul ul {
+	list-style-type: circle;
+}
+
+#preview-pane ul ul ul {
+	list-style-type: square;
+}
+
+#preview-pane ul ::marker {
+	font-size: 1.1em;
+}
+
 #preview-pane li {
 	margin: 0.2em 0;
 }

@@ -1,0 +1,13 @@
+name: asciidoctor.js
+title: Asciidoctor.js
+version: '3.0'
+asciidoc:
+  attributes:
+    url-jsdoc-latest: 'https://asciidoctor.github.io/asciidoctor.js/main/'
+nav:
+- modules/setup/nav.adoc
+- modules/processor/nav.adoc
+- modules/extend/nav.adoc
+- modules/cli/nav.adoc
+- modules/spec/nav.adoc
+- modules/project/nav.adoc

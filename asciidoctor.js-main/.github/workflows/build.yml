@@ -1,0 +1,99 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - 'main'
+    tags-ignore:
+      - '**'
+    paths-ignore:
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+
+jobs:
+  activate:
+    if: |
+      (github.event_name == 'schedule' && github.repository_owner == 'asciidoctor') ||
+      (github.event_name != 'schedule' && !endsWith(github.event.head_commit.message, '[skip ci]'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Proceed
+        run: echo ok go
+  build:
+    needs: activate
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        asciidoctor-core-version: [v2.0.23, main]
+        experimental: [false]
+        include:
+          - os: macos-latest
+            experimental: true
+            asciidoctor-core-version: v2.0.23
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    # libgbm-dev is required by Puppeteer 3+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get install -y libgbm-dev
+      if: ${{ runner.os == 'Linux' }}
+    - name: Install dependencies
+      run: |
+        npm ci
+        npm ci --prefix packages/core
+    - name: Lint, build and test
+      env:
+        ASCIIDOCTOR_CORE_VERSION: ${{ matrix.asciidoctor-core-version }}
+      run: |
+        npm run lint
+        npm run test
+        npm run travis --prefix packages/core
+  build-windows:
+    needs: activate
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        asciidoctor-core-version: [v2.0.23, main]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix packages/core
+      - name: Build
+        env:
+          ASCIIDOCTOR_CORE_VERSION: ${{ matrix.asciidoctor-core-version }}
+        working-directory: ./packages/core
+        run: node tasks/build.cjs
+      - name: Test Build
+        env:
+          ASCIIDOCTOR_CORE_VERSION: ${{ matrix.asciidoctor-core-version }}
+        working-directory: ./packages/core
+        run: node tasks/test/unsupported-features.cjs
+      - name: Test Node
+        env:
+          ASCIIDOCTOR_CORE_VERSION: ${{ matrix.asciidoctor-core-version }}
+        working-directory: ./packages/core
+        run: npm run test:node
+      - name: Test Browser
+        env:
+          ASCIIDOCTOR_CORE_VERSION: ${{ matrix.asciidoctor-core-version }}
+        working-directory: ./packages/core
+        run: npm run test:browser
+      - name: Examples Node
+        env:
+          ASCIIDOCTOR_CORE_VERSION: ${{ matrix.asciidoctor-core-version }}
+        working-directory: ./packages/core
+        run: npm run examples

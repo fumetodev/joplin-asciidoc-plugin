@@ -1,0 +1,25 @@
+{
+  "name": "@asciidoctor/root",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test spec/*/*.spec.js",
+    "lint": "npx prettier --check spec/**/*.js tasks/**/*.js",
+    "format": "npx prettier --write spec/**/*.js tasks/**/*.js",
+    "release": "node tasks/release.js"
+  },
+  "devDependencies": {
+    "bestikk-log": "0.1.0",
+    "downdoc": "1.0.2-stable",
+    "libnpmpublish": "4.0.2",
+    "pacote": "12.0.3",
+    "prettier": "3.5.3",
+    "semver": "7.7.2",
+    "sinon": "20.0.0"
+  },
+  "volta": {
+    "node": "22.14.0"
+  }
+}

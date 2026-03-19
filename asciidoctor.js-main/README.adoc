@@ -1,0 +1,94 @@
+= Asciidoctor.js: AsciiDoc in JavaScript powered by Asciidoctor
+Dan Allen <https://github.com/mojavelinux[@mojavelinux]>; Guillaume Grossetie <https://github.com/mogztter[@mogztter]>; Anthonny Quérouil <https://github.com/anthonny[@anthonny]>
+:idprefix:
+:idseparator: -
+:uri-nodejs: https://nodejs.org
+:uri-opal: https://opalrb.com
+:uri-repo: https://github.com/asciidoctor/asciidoctor.js
+:uri-freesoftware: https://www.gnu.org/philosophy/free-sw.html
+ifndef::uri-rel-file-base[:uri-rel-file-base: link:]
+:uri-contribute: {uri-rel-file-base}CONTRIBUTING.adoc
+:uri-contribute-code: {uri-rel-file-base}CONTRIBUTING-CODE.adoc
+:uri-user-manual: https://docs.asciidoctor.org/asciidoctor.js/latest/
+:license: {uri-repo}/blob/main/LICENSE
+:experimental:
+:endash:
+
+ifdef::env-github[]
+image:https://github.com/asciidoctor/asciidoctor.js/workflows/Build/badge.svg[GitHub Actions Status, link=https://github.com/asciidoctor/asciidoctor.js/actions]
+image:https://img.shields.io/npm/v/asciidoctor.svg[npm version, link=https://www.npmjs.org/package/asciidoctor]
+image:https://img.shields.io/npm/dm/asciidoctor[npm stats, link=https://www.npmjs.org/package/asciidoctor]
+image:https://img.shields.io/badge/jsdoc-main-blue.svg[JSDoc, link=https://asciidoctor.github.io/asciidoctor.js/main]
+image:https://img.shields.io/badge/zulip-join_chat-brightgreen.svg[project chat,link=https://asciidoctor.zulipchat.com/]
+endif::[]
+
+Asciidoctor.js brings AsciiDoc to the JavaScript world!
+
+This project uses {uri-opal}[Opal] to transpile http://asciidoctor.org[Asciidoctor], a modern implementation of AsciiDoc, from Ruby to JavaScript to produce _asciidoctor.js_.
+The _asciidoctor.js_ script can be run on any JavaScript platform, including Node.js, GraalVM and, of course, a web browser.
+
+== Quickstart
+
+ $ npm i asciidoctor --save
+
+Here is a simple example that converts AsciiDoc to HTML5:
+
+.sample.js
+[source,javascript]
+----
+import asciidoctor from 'asciidoctor' // <1>
+
+const Asciidoctor = asciidoctor()
+const content = 'http://asciidoctor.org[*Asciidoctor*] ' +
+  'running on https://opalrb.com[_Opal_] ' +
+  'brings AsciiDoc to Node.js!'
+const html = Asciidoctor.convert(content) // <2>
+console.log(html) // <3>
+----
+<1> Instantiate the Asciidoctor.js library
+<2> Convert AsciiDoc content to HTML5 using Asciidoctor.js
+<3> Print the HTML5 output to the console
+
+Save the file as _sample.js_ and run it using the `node` command:
+
+ $ node sample.js
+
+You should see the following output in your terminal:
+
+[source.output,html]
+----
+<div class="paragraph">
+<p><a href="http://asciidoctor.org"><strong>Asciidoctor</strong></a> running on <a href="http://opalrb.com"><em>Opal</em></a> brings AsciiDoc to Node.js!</p>
+</div>
+----
+
+It's also possible to use the following `script` tag directly into your HTML page:
+
+```html
+<script src="node_modules/@asciidoctor/core/dist/browser/asciidoctor.js"></script>
+```
+
+== Learning
+
+If you want to learn more about _Asciidoctor.js_, please read the {uri-user-manual}[User Manual].
+
+== Contributing
+
+In the spirit of {uri-freesoftware}[free software], _everyone_ is encouraged to help improve this project.
+If you discover errors or omissions in the source code, documentation, or website content, please don't hesitate to submit an issue or open a pull request with a fix.
+New contributors are always welcome!
+
+The {uri-contribute}[Contributing] guide provides information on how to contribute.
+
+If you want to write code, the {uri-contribute-code}[Contributing Code] guide will help you to get started quickly.
+
+== Copyright
+
+Copyright (C) 2013-present Dan Allen, Guillaume Grossetie, Anthonny Quérouil and the Asciidoctor Project.
+Free use of this software is granted under the terms of the MIT License.
+
+See the {license}[LICENSE] file for details.
+
+== Changelog
+
+Refer to the https://github.com/asciidoctor/asciidoctor.js/blob/main/CHANGELOG.adoc[CHANGELOG] for a complete list of changes.
