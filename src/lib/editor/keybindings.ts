@@ -152,6 +152,14 @@ export const asciidocKeymap: KeyBinding[] = [
     },
   },
   {
+    key: "Alt-Backspace",
+    run: deleteGroupBackward,
+  },
+  {
+    key: "Alt-Delete",
+    run: deleteGroupForward,
+  },
+  {
     key: "Mod-s",
     run: () => {
       // Dispatch force-save event instead of calling editor store

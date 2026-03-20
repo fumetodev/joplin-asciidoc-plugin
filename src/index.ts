@@ -227,6 +227,89 @@ async function getTemplateNotes(tagId: string): Promise<Array<{ id: string; titl
 }
 
 // =====================================================
+// Notebook conversion helpers
+// =====================================================
+
+async function getNotesInFolder(folderId: string): Promise<Array<{ id: string; title: string; body: string }>> {
+  const notes: Array<{ id: string; title: string; body: string }> = [];
+  let page = 1;
+  for (;;) {
+    const result = await joplin.data.get(["folders", folderId, "notes"], {
+      fields: ["id", "title", "body"],
+      page,
+      limit: 100,
+    });
+    const items = result.items || result;
+    for (const note of items) {
+      notes.push({ id: note.id, title: note.title, body: note.body });
+    }
+    if (!result.has_more) break;
+    page++;
+  }
+  return notes;
+}
+
+async function getSubFolders(parentId: string): Promise<Array<{ id: string; title: string }>> {
+  const folders: Array<{ id: string; title: string }> = [];
+  let page = 1;
+  for (;;) {
+    const result = await joplin.data.get(["folders"], {
+      fields: ["id", "title", "parent_id"],
+      page,
+      limit: 100,
+    });
+    const items = result.items || result;
+    for (const folder of items) {
+      if ((folder as any).parent_id === parentId) {
+        folders.push({ id: folder.id, title: folder.title });
+      }
+    }
+    if (!result.has_more) break;
+    page++;
+  }
+  return folders;
+}
+
+async function copyNotebookAsAsciiDoc(sourceFolderId: string, targetParentId: string, newTitle: string) {
+  const newFolder = await joplin.data.post(["folders"], null, {
+    parent_id: targetParentId,
+    title: newTitle,
+  });
+
+  const notes = await getNotesInFolder(sourceFolderId);
+  for (const note of notes) {
+    const body = isAsciiDocNote(note.body)
+      ? note.body
+      : appendSentinel(convertMarkdownToAsciidoc(note.body), {});
+    await joplin.data.post(["notes"], null, {
+      parent_id: newFolder.id,
+      title: note.title,
+      body,
+    });
+  }
+
+  const subFolders = await getSubFolders(sourceFolderId);
+  for (const sub of subFolders) {
+    await copyNotebookAsAsciiDoc(sub.id, newFolder.id, sub.title);
+  }
+}
+
+async function replaceNotebookWithAsciiDoc(folderId: string) {
+  const notes = await getNotesInFolder(folderId);
+  for (const note of notes) {
+    if (isAsciiDocNote(note.body)) continue;
+    const converted = convertMarkdownToAsciidoc(note.body);
+    const newBody = appendSentinel(converted, {});
+    await joplin.data.put(["notes", note.id], null, { body: newBody });
+  }
+
+  const subFolders = await getSubFolders(folderId);
+  for (const sub of subFolders) {
+    await replaceNotebookWithAsciiDoc(sub.id);
+  }
+}
+
+// =====================================================
 // Commands registration
 // =====================================================
 
@@ -461,6 +544,59 @@ async function registerCommands() {
   // Note list right-click context menu
   await joplin.views.menuItems.create("asciidocCopyContextMenu", "asciidoc.createAsciiDocCopy", MenuItemLocation.NoteListContextMenu);
   await joplin.views.menuItems.create("asciidocReplaceContextMenu", "asciidoc.replaceWithAsciiDoc", MenuItemLocation.NoteListContextMenu);
+
+  // Notebook (folder) conversion commands
+  await joplin.commands.register({
+    name: "asciidoc.copyNotebookAsAsciiDoc",
+    label: "Create AsciiDoc Copy of Notebook",
+    iconName: "fas fa-copy",
+    execute: async (...args: any[]) => {
+      try {
+        // Folder ID may be passed as argument from context menu, or fall back to selected folder
+        const folderId = args[0] || (await joplin.workspace.selectedFolder())?.id;
+        if (!folderId) {
+          console.error("[AsciiDoc] copyNotebook: no folder ID available");
+          return;
+        }
+        const folderData = await joplin.data.get(["folders", folderId], {
+          fields: ["id", "title", "parent_id"],
+        });
+        if (!folderData) {
+          console.error("[AsciiDoc] copyNotebook: folder not found:", folderId);
+          return;
+        }
+        console.info("[AsciiDoc] Creating AsciiDoc copy of notebook:", folderData.title);
+        await copyNotebookAsAsciiDoc(folderData.id, folderData.parent_id || "", folderData.title + " (AsciiDoc)");
+        console.info("[AsciiDoc] Notebook copy complete");
+      } catch (e) {
+        console.error("[AsciiDoc] copyNotebook failed:", e);
+      }
+    },
+  });
+
+  await joplin.commands.register({
+    name: "asciidoc.replaceNotebookWithAsciiDoc",
+    label: "Replace with AsciiDoc Notebook",
+    iconName: "fas fa-exchange-alt",
+    execute: async (...args: any[]) => {
+      try {
+        const folderId = args[0] || (await joplin.workspace.selectedFolder())?.id;
+        if (!folderId) {
+          console.error("[AsciiDoc] replaceNotebook: no folder ID available");
+          return;
+        }
+        console.info("[AsciiDoc] Replacing notebook with AsciiDoc:", folderId);
+        await replaceNotebookWithAsciiDoc(folderId);
+        console.info("[AsciiDoc] Notebook replacement complete");
+      } catch (e) {
+        console.error("[AsciiDoc] replaceNotebook failed:", e);
+      }
+    },
+  });
+
+  // Folder right-click context menu
+  await joplin.views.menuItems.create("asciidocCopyNotebookContextMenu", "asciidoc.copyNotebookAsAsciiDoc", MenuItemLocation.FolderContextMenu);
+  await joplin.views.menuItems.create("asciidocReplaceNotebookContextMenu", "asciidoc.replaceNotebookWithAsciiDoc", MenuItemLocation.FolderContextMenu);
 }
 
 // =====================================================
