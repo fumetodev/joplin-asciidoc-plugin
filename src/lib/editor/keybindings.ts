@@ -1,4 +1,5 @@
 import type { KeyBinding } from "@codemirror/view";
+import { deleteGroupBackward, deleteGroupForward } from "@codemirror/commands";
 
 function wrapSelection(view: any, before: string, after: string) {
   const { from, to } = view.state.selection.main;

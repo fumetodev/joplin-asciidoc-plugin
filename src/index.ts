@@ -358,11 +358,11 @@ async function registerCommands() {
     },
   });
 
-  // "Convert to AsciiDoc File" — available in note list right-click menu
+  // "Create AsciiDoc Copy" — available in note list right-click menu
   await joplin.commands.register({
-    name: "asciidoc.convertToAsciiDocFile",
-    label: "Convert to AsciiDoc File",
-    iconName: "fas fa-file-alt",
+    name: "asciidoc.createAsciiDocCopy",
+    label: "Create AsciiDoc Copy",
+    iconName: "fas fa-copy",
     execute: async () => {
       const selected = await joplin.workspace.selectedNote();
       if (!selected) return;
@@ -386,6 +386,34 @@ async function registerCommands() {
       setTimeout(async () => {
         await joplin.commands.execute("openNote", copy.id);
       }, 100);
+    },
+  });
+
+  // "Replace with AsciiDoc File" — converts note in-place from note list right-click menu
+  await joplin.commands.register({
+    name: "asciidoc.replaceWithAsciiDoc",
+    label: "Replace with AsciiDoc File",
+    iconName: "fas fa-exchange-alt",
+    execute: async () => {
+      const selected = await joplin.workspace.selectedNote();
+      if (!selected) return;
+      const note = await joplin.data.get(["notes", selected.id], {
+        fields: ["id", "body", "parent_id"],
+      });
+      if (!note) return;
+      if (isAsciiDocNote(note.body)) return;
+      const converted = convertMarkdownToAsciidoc(note.body);
+      const newBody = appendSentinel(converted, {});
+      await joplin.data.put(["notes", note.id], null, { body: newBody });
+      // Force refresh by navigating away and back
+      const tmp = await joplin.data.post(["notes"], null, {
+        parent_id: note.parent_id,
+        title: ".tmp-asciidoc-convert",
+        body: "",
+      });
+      await joplin.commands.execute("openNote", tmp.id);
+      await joplin.data.delete(["notes", tmp.id]);
+      await joplin.commands.execute("openNote", note.id);
     },
   });
 
@@ -431,7 +459,8 @@ async function registerCommands() {
   await joplin.views.menuItems.create("asciidocEditAttrs", "asciidoc.editAttributes", MenuItemLocation.Tools);
 
   // Note list right-click context menu
-  await joplin.views.menuItems.create("asciidocConvertContextMenu", "asciidoc.convertToAsciiDocFile", MenuItemLocation.NoteListContextMenu);
+  await joplin.views.menuItems.create("asciidocCopyContextMenu", "asciidoc.createAsciiDocCopy", MenuItemLocation.NoteListContextMenu);
+  await joplin.views.menuItems.create("asciidocReplaceContextMenu", "asciidoc.replaceWithAsciiDoc", MenuItemLocation.NoteListContextMenu);
 }
 
 // =====================================================
