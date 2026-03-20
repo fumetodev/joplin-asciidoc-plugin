@@ -4,6 +4,32 @@ import { deleteGroupBackward, deleteGroupForward } from "@codemirror/commands";
 function wrapSelection(view: any, before: string, after: string) {
   const { from, to } = view.state.selection.main;
   const selected = view.state.sliceDoc(from, to);
+
+  // Toggle: if selected text is already wrapped, unwrap it
+  if (selected.startsWith(before) && selected.endsWith(after) && selected.length >= before.length + after.length) {
+    const inner = selected.slice(before.length, selected.length - after.length);
+    view.dispatch({
+      changes: { from, to, insert: inner },
+      selection: { anchor: from, head: from + inner.length },
+    });
+    return true;
+  }
+
+  // Toggle: if the characters around the selection are the markers, remove them
+  const charsBefore = view.state.sliceDoc(from - before.length, from);
+  const charsAfter = view.state.sliceDoc(to, to + after.length);
+  if (charsBefore === before && charsAfter === after) {
+    view.dispatch({
+      changes: [
+        { from: from - before.length, to: from, insert: "" },
+        { from: to, to: to + after.length, insert: "" },
+      ],
+      selection: { anchor: from - before.length, head: to - before.length },
+    });
+    return true;
+  }
+
+  // Otherwise, wrap the selection
   view.dispatch({
     changes: { from, to, insert: before + selected + after },
     selection: { anchor: from + before.length, head: to + before.length },

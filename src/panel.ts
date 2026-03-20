@@ -34,8 +34,8 @@ let suppressNextDocChange = false; // Prevent save-back loop when loading new no
 const SAVE_DEBOUNCE_MS = 2000;
 
 const lineNumbersCompartment = new Compartment();
-let showLineNumbers = false;
-let specialBlockShading = true;
+let showLineNumbers = localStorage.getItem("asciidoc-line-numbers") === "true";
+let specialBlockShading = localStorage.getItem("asciidoc-block-shading") !== "false";
 let overlayEditingEnabled = localStorage.getItem("asciidoc-overlay-editing") === "true";
 // Sync initial state to live-preview module
 setOverlayEditingEnabled(overlayEditingEnabled);
@@ -206,10 +206,35 @@ function handleEditorCommand(e: Event) {
 
   if (type === "wrap") {
     const selected = editorView.state.sliceDoc(from, to);
-    editorView.dispatch({
-      changes: { from, to, insert: before + selected + after },
-      selection: { anchor: from + before.length, head: to + before.length },
-    });
+
+    // Toggle: if selected text is already wrapped, unwrap it
+    if (selected.startsWith(before) && selected.endsWith(after) && selected.length >= before.length + after.length) {
+      const inner = selected.slice(before.length, selected.length - after.length);
+      editorView.dispatch({
+        changes: { from, to, insert: inner },
+        selection: { anchor: from, head: from + inner.length },
+      });
+    }
+    // Toggle: if the characters around the selection are the markers, remove them
+    else if (
+      editorView.state.sliceDoc(from - before.length, from) === before &&
+      editorView.state.sliceDoc(to, to + after.length) === after
+    ) {
+      editorView.dispatch({
+        changes: [
+          { from: from - before.length, to: from, insert: "" },
+          { from: to, to: to + after.length, insert: "" },
+        ],
+        selection: { anchor: from - before.length, head: to - before.length },
+      });
+    }
+    // Otherwise, wrap the selection
+    else {
+      editorView.dispatch({
+        changes: { from, to, insert: before + selected + after },
+        selection: { anchor: from + before.length, head: to + before.length },
+      });
+    }
   } else if (type === "insert") {
     const cursorPos = (e as CustomEvent).detail.cursorOffset != null
       ? from + (e as CustomEvent).detail.cursorOffset
@@ -219,24 +244,28 @@ function handleEditorCommand(e: Event) {
       selection: { anchor: cursorPos },
     });
   } else if (type === "heading") {
-    const lineObj = editorView.state.doc.lineAt(from);
-    const stripped = lineObj.text.replace(/^=+\s*/, "");
-    const newLine = text + stripped;
-    editorView.dispatch({
-      changes: { from: lineObj.from, to: lineObj.to, insert: newLine },
-      selection: { anchor: lineObj.from + newLine.length },
-    });
-  } else if (type === "prefix") {
-    const lineObj = editorView.state.doc.lineAt(from);
-    if (lineObj.text.startsWith(text)) {
-      editorView.dispatch({
-        changes: { from: lineObj.from, to: lineObj.from + text.length, insert: "" },
-      });
-    } else {
-      editorView.dispatch({
-        changes: { from: lineObj.from, insert: text },
-      });
+    const firstLine = editorView.state.doc.lineAt(from);
+    const lastLine = editorView.state.doc.lineAt(to);
+    const changes: Array<{ from: number; to: number; insert: string }> = [];
+    for (let ln = firstLine.number; ln <= lastLine.number; ln++) {
+      const lineObj = editorView.state.doc.line(ln);
+      const stripped = lineObj.text.replace(/^=+\s*/, "");
+      changes.push({ from: lineObj.from, to: lineObj.to, insert: text + stripped });
     }
+    editorView.dispatch({ changes });
+  } else if (type === "prefix") {
+    const firstLine = editorView.state.doc.lineAt(from);
+    const lastLine = editorView.state.doc.lineAt(to);
+    const changes: Array<{ from: number; to: number; insert: string }> = [];
+    for (let ln = firstLine.number; ln <= lastLine.number; ln++) {
+      const lineObj = editorView.state.doc.line(ln);
+      if (lineObj.text.startsWith(text)) {
+        changes.push({ from: lineObj.from, to: lineObj.from + text.length, insert: "" });
+      } else {
+        changes.push({ from: lineObj.from, to: lineObj.from, insert: text });
+      }
+    }
+    editorView.dispatch({ changes });
   } else if (type === "remove-highlight") {
     removeHighlightMarkup();
   }
@@ -283,7 +312,7 @@ function createEditor(container: HTMLElement, content: string) {
   const state = EditorState.create({
     doc: content,
     extensions: [
-      lineNumbersCompartment.of([]),
+      lineNumbersCompartment.of(showLineNumbers ? [lineNumbers(), highlightActiveLineGutter()] : []),
       highlightActiveLine(),
       drawSelection(),
       bracketMatching(),

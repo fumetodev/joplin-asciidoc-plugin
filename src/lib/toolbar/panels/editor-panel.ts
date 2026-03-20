@@ -36,12 +36,14 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   lineNumLabel.className = "ribbon-toggle";
   const lineNumCb = document.createElement("input");
   lineNumCb.type = "checkbox";
-  lineNumCb.checked = false;
+  const savedLineNumbers = localStorage.getItem("asciidoc-line-numbers");
+  lineNumCb.checked = savedLineNumbers === "true";
   lineNumCb.addEventListener("input", () => {
     options.onToggleLineNumbers(lineNumCb.checked);
+    localStorage.setItem("asciidoc-line-numbers", String(lineNumCb.checked));
   });
   const lineNumSpan = document.createElement("span");
-  lineNumSpan.textContent = "Line numbers";
+  lineNumSpan.textContent = "Line Numbers";
   lineNumLabel.appendChild(lineNumCb);
   lineNumLabel.appendChild(lineNumSpan);
   displayToggles.appendChild(lineNumLabel);
@@ -57,9 +59,11 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   shadingLabel.className = "ribbon-toggle";
   const shadingCb = document.createElement("input");
   shadingCb.type = "checkbox";
-  shadingCb.checked = true;
+  const savedShading = localStorage.getItem("asciidoc-block-shading");
+  shadingCb.checked = savedShading === null ? true : savedShading === "true";
   shadingCb.addEventListener("input", () => {
     options.onToggleBlockShading(shadingCb.checked);
+    localStorage.setItem("asciidoc-block-shading", String(shadingCb.checked));
   });
   const shadingSpan = document.createElement("span");
   shadingSpan.textContent = "Special Block Shading";

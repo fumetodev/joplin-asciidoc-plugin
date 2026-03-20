@@ -138,12 +138,273 @@ function convertMarkdownLists(text: string): string {
 }
 
 /**
+ * Convert Markdown inline links [text](url) to AsciiDoc link:url[text].
+ * Also converts images ![alt](url) to image::url[alt].
+ * Always uses the link: macro to prevent Asciidoctor from misinterpreting
+ * special characters (commas, percent-encoding, fragments) in URLs.
+ * Skips lines inside fenced code blocks.
+ * Must run BEFORE convertMarkdownCodeBlocks so code block tracking still uses ```.
+ */
+function convertMarkdownLinks(text: string): string {
+  const lines = text.split("\n");
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+
+    // Convert images: ![alt](url "title")
+    // Markdown titles are stripped.
+    // If image is alone on line → block image (image::) with trailing text as caption
+    // If image is inline with other content → inline image (image:)
+    if (/!\[([^\]]*)\]\(/.test(lines[i])) {
+      const imageOnlyMatch = lines[i].match(/^\s*!\[([^\]]*)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)\s*$/);
+      if (imageOnlyMatch) {
+        // Standalone image → block macro
+        lines[i] = `image::${imageOnlyMatch[2]}[${imageOnlyMatch[1]}]`;
+      } else {
+        const imageWithCaptionMatch = lines[i].match(/^\s*!\[([^\]]*)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)\s*(.+)$/);
+        if (imageWithCaptionMatch && !/!\[/.test(imageWithCaptionMatch[3])) {
+          // Single image at start with trailing text (no other images) → block with caption
+          const caption = imageWithCaptionMatch[3].trim();
+          lines[i] = `${caption ? `.${caption}\n` : ""}image::${imageWithCaptionMatch[2]}[${imageWithCaptionMatch[1]}]`;
+        } else {
+          // Multiple images or image inline with text → inline image (image:)
+          lines[i] = lines[i].replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)/g, "image:$2[$1]");
+        }
+      }
+    }
+
+    // Convert links: [text](url "title") → link:url[text]
+    // Markdown titles are stripped
+    lines[i] = lines[i].replace(/(.?)\[([^\]]*)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)/g, (_match, before, linkText, url) => {
+      // Ensure a space before link: when preceded by text (AsciiDoc requires word boundary)
+      const needsSpace = before && !/\s/.test(before);
+      return `${before}${needsSpace ? " " : ""}link:${url}[${linkText}]`;
+    });
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Convert Markdown inline formatting to AsciiDoc equivalents.
+ * - ***text*** (MD bold+italic) → *_text_* (AD bold+italic)
+ * - **text**  (MD bold)         → *text* (AD constrained strong)
+ * - ~~text~~  (MD strikethrough) → [line-through]#text# (AD)
+ *
+ * Note: single *text* (MD italic) is NOT converted because it conflicts
+ * with AsciiDoc list markers and with the bold conversion output.
+ * In AsciiDoc, *text* renders as bold which is acceptable.
+ *
+ * Processes outside of code blocks and inline code spans.
+ */
+function convertMarkdownInlineFormatting(text: string): string {
+  const lines = text.split("\n");
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+
+    // Split line into code spans and non-code segments to avoid
+    // converting formatting inside inline code (`...`)
+    const segments = lines[i].split(/(`[^`]+`)/);
+    for (let j = 0; j < segments.length; j++) {
+      // Skip inline code segments (odd indices from the split)
+      if (segments[j].startsWith("`")) continue;
+
+      // Bold+italic: ***text*** → *_text_* (must run before bold)
+      segments[j] = segments[j].replace(/\*\*\*(.+?)\*\*\*/g, "*_$1_*");
+
+      // Bold: **text** → *text*
+      segments[j] = segments[j].replace(/\*\*(.+?)\*\*/g, "*$1*");
+
+      // Strikethrough: ~~text~~ → [line-through]#text#
+      segments[j] = segments[j].replace(/~~(.+?)~~/g, "[line-through]#$1#");
+    }
+    lines[i] = segments.join("");
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Convert Markdown fenced code blocks to AsciiDoc listing blocks.
+ *   ```lang  →  [source,lang]\n----
+ *   ```      →  ----
+ *   ~~~lang  →  [source,lang]\n----
+ * Must run AFTER all other line-based converters since it changes the
+ * fence markers that those converters use for code-block tracking.
+ */
+function convertMarkdownCodeBlocks(text: string): string {
+  const lines = text.split("\n");
+  let inCodeBlock = false;
+  const result: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    if (!inCodeBlock) {
+      const openMatch = trimmed.match(/^(`{3,}|~{3,})\s*(\S*)\s*$/);
+      if (openMatch) {
+        inCodeBlock = true;
+        const lang = openMatch[2];
+        if (lang) {
+          result.push(`[source,${lang}]`);
+        }
+        result.push("----");
+        continue;
+      }
+    } else {
+      if (/^(`{3,}|~{3,})\s*$/.test(trimmed)) {
+        inCodeBlock = false;
+        result.push("----");
+        continue;
+      }
+    }
+
+    result.push(lines[i]);
+  }
+
+  return result.join("\n");
+}
+
+/**
+ * Convert HTML elements commonly found in Markdown notes.
+ * - <br/>, <br>, <br /> → newline
+ * - Strip inline HTML tags (<a>, <span>, <div>, etc.) preserving content
+ * Must run BEFORE other converters so they see clean text.
+ */
+function convertHtmlElements(text: string): string {
+  let result = text;
+  // Convert <br> variants to newlines
+  result = result.replace(/<br\s*\/?>/gi, "\n");
+  // Strip common HTML tags, preserving their content
+  result = result.replace(/<\/?(?:a|span|div|p|em|strong|b|i|u|s|del|ins|sup|sub|small|big|center|font|mark|abbr)(?:\s[^>]*)?>/gi, "");
+  return result;
+}
+
+/**
+ * Remove Markdown backslash escapes that have no meaning in AsciiDoc.
+ * \* → *, \$ → $, \[ → [, \] → ], \- → -, \_ → _, \\ → \
+ * Skips lines inside fenced code blocks.
+ */
+function convertMarkdownEscapes(text: string): string {
+  const lines = text.split("\n");
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+
+    // Split on inline code to avoid processing inside backticks
+    const segments = lines[i].split(/(`[^`]+`)/);
+    for (let j = 0; j < segments.length; j++) {
+      if (segments[j].startsWith("`")) continue;
+      // Remove backslash before common escaped characters
+      segments[j] = segments[j].replace(/\\([*$\[\]\\_.!#\-+`~{}>])/g, "$1");
+    }
+    lines[i] = segments.join("");
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Convert Markdown linked images [![alt](imgUrl)](linkUrl)
+ * to AsciiDoc image::imgUrl[alt, link=linkUrl].
+ * Must run BEFORE convertMarkdownLinks to avoid nested bracket issues.
+ */
+function convertMarkdownLinkedImages(text: string): string {
+  const lines = text.split("\n");
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+
+    // [![alt](imgUrl "title")](linkUrl "title") → image macro with link
+    // Markdown titles are stripped from both image and link URLs
+    // If it's the only thing on the line → block (image::), otherwise inline (image:)
+    const linkedImgRegex = /\[!\[([^\]]*)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)/g;
+    const linkedImgOnlyMatch = lines[i].match(/^\s*\[!\[([^\]]*)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)\s*$/);
+    if (linkedImgOnlyMatch) {
+      // Single linked image alone on line → block macro
+      lines[i] = `image::${linkedImgOnlyMatch[2]}[${linkedImgOnlyMatch[1]}, link=${linkedImgOnlyMatch[3]}]`;
+    } else {
+      // Inline with other content → inline macro (image:)
+      lines[i] = lines[i].replace(linkedImgRegex, (_, alt, imgUrl, linkUrl) => {
+        return `image:${imgUrl}[${alt}${linkUrl ? ", link=" + linkUrl : ""}]`;
+      });
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
  * Apply all Markdown → AsciiDoc conversions.
  */
+/**
+ * Convert Markdown horizontal rules (---, ***, ___) to AsciiDoc (''').
+ * Skips lines inside fenced code blocks.
+ */
+function convertMarkdownHorizontalRules(text: string): string {
+  const lines = text.split("\n");
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+
+    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(trimmed)) {
+      lines[i] = "'''";
+    }
+  }
+
+  return lines.join("\n");
+}
+
 function convertMarkdownToAsciidoc(text: string): string {
   let result = text;
+  // HTML cleanup first so other converters see clean text
+  result = convertHtmlElements(result);
+  result = convertMarkdownEscapes(result);
   result = convertMarkdownHeadings(result);
   result = convertMarkdownLists(result);
+  result = convertMarkdownHorizontalRules(result);
+  result = convertMarkdownInlineFormatting(result);
+  // Linked images before regular images/links (nested brackets)
+  result = convertMarkdownLinkedImages(result);
+  result = convertMarkdownLinks(result);
+  // Code blocks last — changes fence markers that other converters rely on
+  result = convertMarkdownCodeBlocks(result);
   return result;
 }
 

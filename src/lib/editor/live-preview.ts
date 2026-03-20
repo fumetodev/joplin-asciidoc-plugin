@@ -1949,6 +1949,35 @@ class PreviewLineWidget extends WidgetType {
       });
     }
 
+    // Ctrl+click on links opens URL in default browser
+    // Extract URLs from the source text and attach to rendered link elements
+    const linkEls = span.querySelectorAll<HTMLElement>(".cm-lp-link");
+    if (linkEls.length > 0) {
+      // Parse link URLs from the original HTML source (which contains the AsciiDoc markup)
+      const urlRegex = /link:([^\[]+)\[|(?<!link:)(https?:\/\/[^\s\[]+)\[|mailto:([^\[]+)\[/g;
+      const urls: string[] = [];
+      let match;
+      while ((match = urlRegex.exec(this.html)) !== null) {
+        urls.push(match[1] || match[2] || (match[3] ? "mailto:" + match[3] : ""));
+      }
+      // Also collect bare URLs that aren't followed by [
+      const bareUrlRegex = /(?<!link:)(https?:\/\/[^\s\[<"]+)(?!\[[^\]]*\])/g;
+      while ((match = bareUrlRegex.exec(this.html)) !== null) {
+        urls.push(match[1]);
+      }
+      for (let li = 0; li < linkEls.length && li < urls.length; li++) {
+        if (urls[li]) {
+          linkEls[li].dataset.href = urls[li];
+          linkEls[li].addEventListener("click", (e) => {
+            if (e.ctrlKey || e.metaKey) {
+              consumeEvent(e);
+              window.open(urls[li], "_blank");
+            }
+          });
+        }
+      }
+    }
+
     return span;
   }
   eq(other: PreviewLineWidget): boolean {
@@ -2028,7 +2057,7 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
     const checked = checkMatch[2] === "x";
     const pad = (depth - 1) * 1.5;
     const box = checked ? `<span style="color:var(--asciidoc-link,#2156a5)">\u2611</span>` : `\u2610`;
-    return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em"><span class="cm-lp-list-marker">${box}</span>${renderInline(checkMatch[3])}</span>`;
+    return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em"><span class="cm-lp-list-marker">${box}</span><span class="cm-lp-list-content">${renderInline(checkMatch[3])}</span></span>`;
   }
 
   const bulletMatch = trimmed.match(/^(\*{1,5})\s+(.+)$/);
@@ -2037,7 +2066,7 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
     const pad = (depth - 1) * 1.5;
     const bulletClass = depth === 1 ? "" : depth === 2 ? " cm-lp-bullet-marker-nested" : " cm-lp-bullet-marker-square";
     const markerHtml = `<span class="cm-lp-list-marker cm-lp-bullet-marker${bulletClass}" aria-hidden="true"></span>`;
-    return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em">${markerHtml}${renderInline(bulletMatch[2])}</span>`;
+    return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em">${markerHtml}<span class="cm-lp-list-content">${renderInline(bulletMatch[2])}</span></span>`;
   }
 
   const numMatch = trimmed.match(/^(\.{1,5})\s+(.+)$/);
@@ -2046,7 +2075,7 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
     const pad = (depth - 1) * 1.5;
     const num = listNumbers?.get(lineNumber) ?? 1;
     const label = depth === 1 ? `${num}.` : `${String.fromCharCode(96 + num)}.`;
-    return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em"><span class="cm-lp-list-marker">${label}</span>${renderInline(numMatch[2])}</span>`;
+    return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em"><span class="cm-lp-list-marker">${label}</span><span class="cm-lp-list-content">${renderInline(numMatch[2])}</span></span>`;
   }
 
   const defMatch = trimmed.match(/^(.+)::\s*(.*)$/);
@@ -2075,7 +2104,15 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
       image.height !== 100 ? `height:${image.height}%` : "",
     ].filter(Boolean).join(";");
 
-    return `<span class="cm-lp-image-wrap cm-lp-image-align-${escapeHtml(image.align)}"><img class="cm-lp-image" src="${escapeHtml(normalizeImageTarget(image.target))}" alt="${escapeHtml(image.alt)}"${sizeStyle ? ` style="${sizeStyle}"` : ""} /></span>`;
+    // Resolve Joplin resource URLs from cache
+    let imgSrc = normalizeImageTarget(image.target);
+    const resourceMatch = image.target.match(/^:\/?([a-f0-9]{32})/);
+    if (resourceMatch) {
+      const cached = resourceUrlCache.get(resourceMatch[1]);
+      if (cached) imgSrc = cached;
+    }
+
+    return `<span class="cm-lp-image-wrap cm-lp-image-align-${escapeHtml(image.align)}"><img class="cm-lp-image" src="${escapeHtml(imgSrc)}" alt="${escapeHtml(image.alt)}"${sizeStyle ? ` style="${sizeStyle}"` : ""} /></span>`;
   }
 
   if (trimmed.startsWith("include::")) {
@@ -2202,8 +2239,35 @@ function renderInline(text: string): string {
   result = result.replace(/(?<!\w)#(?!\s)(.+?)(?<!\s)#(?!\w)/g, '<mark class="cm-lp-mark">$1</mark>');
 
   // --- Inline macros ---
-  // Links
-  result = result.replace(/link:([^\[]+)\[([^\]]*)\]/g, '<span class="cm-lp-link">$2</span>');
+  // Inline images: image:target[alt, link=url, width=N%] (single colon)
+  result = result.replace(/image:([^\[]+)\[([^\]]*)\]/g, (_m, target, attrText) => {
+    let src = target;
+    const resMatch = target.match(/^:\/?([a-f0-9]{32})/);
+    if (resMatch) {
+      const cached = resourceUrlCache.get(resMatch[1]);
+      if (cached) src = cached;
+    }
+    // Parse attributes: first positional = alt, named: link=, width=
+    let alt = "";
+    let link = "";
+    const parts = attrText.split(/,\s*/);
+    for (const part of parts) {
+      const namedMatch = part.match(/^(\w+)=(.+)$/);
+      if (namedMatch) {
+        if (namedMatch[1] === "link") link = namedMatch[2];
+      } else if (!alt) {
+        alt = part;
+      }
+    }
+    const imgHtml = `<img class="cm-lp-image" style="max-height:1.4em;vertical-align:middle" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" />`;
+    if (link) {
+      return `<span class="cm-lp-link">${imgHtml}</span>`;
+    }
+    return imgHtml;
+  });
+
+  // Links — rendered as styled spans (URLs resolved via DOM in toDOM())
+  result = result.replace(/link:([^\[]+)\[([^\]]*)\]/g, ' <span class="cm-lp-link">$2</span>');
   result = result.replace(/(?<!link:)(https?:\/\/[^\s\[]+)\[([^\]]*)\]/g, '<span class="cm-lp-link">$2</span>');
   result = result.replace(/(?<!link:)(https?:\/\/[^\s\[<]+)(?![^\[]*\])/g, '<span class="cm-lp-link">$1</span>');
   result = result.replace(/mailto:([^\[]+)\[([^\]]*)\]/g, '<span class="cm-lp-link">$2</span>');
@@ -3759,7 +3823,7 @@ const livePreviewTheme = EditorView.theme({
 
   // Inline styles
   ".cm-lp-code": { background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "0.1em 0.3em", borderRadius: "3px", fontSize: "0.9em", fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace" },
-  ".cm-lp-link": { color: "var(--asciidoc-link, #2156a5)", textDecoration: "none" },
+  ".cm-lp-link": { color: "var(--asciidoc-link, #2156a5)", textDecoration: "none", cursor: "pointer" },
   ".cm-lp-link:hover": { textDecoration: "underline" },
   ".cm-lp-xref-wrap": {
     display: "inline-flex",
@@ -4401,6 +4465,10 @@ const livePreviewTheme = EditorView.theme({
     color: "var(--asciidoc-fg, #333)",
     marginRight: "0.3em",
     justifyContent: "center",
+  },
+  ".cm-lp-list-content": {
+    flex: "1",
+    minWidth: "0",
   },
   ".cm-lp-bullet-marker": {
     display: "inline-flex",
