@@ -24,6 +24,7 @@ interface CodeBlockInfo {
 
 interface TableBlockInfo {
   type: "table";
+  attrLine: number; // line with [cols=...] etc., or -1 if none
   openLine: number; // line with opening |===
   closeLine: number; // line with closing |===
 }
@@ -45,12 +46,13 @@ interface ImagePreviewBlockInfo {
 
 interface ContentBlockInfo {
   type: "contentblock";
-  kind: "sidebar" | "example" | "collapsible";
+  kind: "sidebar" | "example" | "collapsible" | "admonition";
   titleLine: number; // line with .Title, or -1 if none
-  attrLine: number; // line with [%collapsible], or -1 if none
+  attrLine: number; // line with [%collapsible] or [TIP] etc., or -1 if none
   openLine: number; // line with **** or ====
   closeLine: number; // line with matching delimiter
   title: string;
+  admonitionType?: string; // "tip" | "note" | "warning" | "caution" | "important" (only for kind=admonition)
 }
 
 interface StemBlockInfo {
@@ -61,12 +63,20 @@ interface StemBlockInfo {
   rawNotation: "stem" | "latexmath" | "asciimath"; // original attribute value
 }
 
+interface DocHeaderBlockInfo {
+  type: "docheader";
+  startLine: number;  // first line of the header block
+  endLine: number;    // last line of the header block (before blank line)
+  title: string;      // document title (= Title line), empty if none
+  attributes: Array<{ name: string; value: string }>; // parsed :name: value pairs
+}
+
 /** Resolve a raw stem notation to a concrete MathNotation for rendering. */
 function resolveStemNotation(raw: "stem" | "latexmath" | "asciimath"): MathNotation {
   return raw === "stem" ? documentStemNotation : raw;
 }
 
-type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo;
+type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo | DocHeaderBlockInfo;
 
 interface PreviewHeightCache {
   lineHeights: Map<number, number>;
@@ -1270,8 +1280,10 @@ function editorHasActiveFocus(view: EditorView): boolean {
 }
 
 function getBlockStartLineNumber(block: BlockInfo): number {
+  if (block.type === "docheader") return block.startLine;
   if (block.type === "code" && block.attrLine > 0) return block.attrLine;
   if (block.type === "blockquote" && block.attrLine > 0) return block.attrLine;
+  if (block.type === "table" && block.attrLine > 0) return block.attrLine;
   if (block.type === "stem") return block.attrLine;
   if (block.type === "image" && block.titleLine > 0) return block.titleLine;
   if (block.type === "contentblock" && block.titleLine > 0) return block.titleLine;
@@ -1281,6 +1293,7 @@ function getBlockStartLineNumber(block: BlockInfo): number {
 }
 
 function getBlockEndLineNumber(block: BlockInfo): number {
+  if (block.type === "docheader") return block.endLine;
   if (block.type === "image") return block.imageLine;
   if (block.type === "stem") return block.closeLine;
   return block.closeLine;
@@ -1411,6 +1424,46 @@ function detectBlocks(doc: any): BlockInfo[] {
   const blocks: BlockInfo[] = [];
   let i = 1;
 
+  // Detect document header block at the very top of the document.
+  // The block covers only the :name: value attribute lines (not the = Title heading).
+  {
+    let headerStart = -1;
+    let headerEnd = -1;
+    const attributes: Array<{ name: string; value: string }> = [];
+    let ln = 1;
+
+    // Skip optional document title (= Title) — it renders as a normal heading
+    if (ln <= doc.lines && /^=\s+/.test(doc.line(ln).text.trim())) {
+      ln++;
+    }
+
+    // Scan contiguous attribute lines (:name: value)
+    while (ln <= doc.lines) {
+      const lineText = doc.line(ln).text.trim();
+      if (!lineText) break; // blank line ends header
+      const attrMatch = lineText.match(/^:([^:]+):\s*(.*)$/);
+      if (attrMatch && !lineText.startsWith("::")) {
+        attributes.push({ name: attrMatch[1], value: attrMatch[2] });
+        if (headerStart < 0) headerStart = ln;
+        headerEnd = ln;
+        ln++;
+      } else {
+        break;
+      }
+    }
+
+    if (attributes.length > 0 && headerStart > 0) {
+      blocks.push({
+        type: "docheader",
+        startLine: headerStart,
+        endLine: headerEnd,
+        title: "",
+        attributes,
+      });
+      i = headerEnd + 1;
+    }
+  }
+
   while (i <= doc.lines) {
     const text = doc.line(i).text.trim();
     const imageLineText = doc.line(i).text;
@@ -1478,6 +1531,35 @@ function detectBlocks(doc: any): BlockInfo[] {
             openLine: i + 1,
             closeLine,
             title: titleMatch[1].trim(),
+          });
+          i = closeLine + 1;
+          continue;
+        }
+      }
+    }
+
+    // Detect admonition block: [NOTE], [TIP], [WARNING], [CAUTION], [IMPORTANT] followed by ====
+    const admonBlockMatch = text.match(/^\[(NOTE|TIP|WARNING|CAUTION|IMPORTANT)\]$/);
+    if (admonBlockMatch && i + 1 <= doc.lines) {
+      const nextText = doc.line(i + 1).text.trim();
+      if (/^={4,}$/.test(nextText)) {
+        let closeLine = -1;
+        for (let j = i + 2; j <= doc.lines; j++) {
+          if (/^={4,}$/.test(doc.line(j).text.trim())) {
+            closeLine = j;
+            break;
+          }
+        }
+        if (closeLine > 0) {
+          blocks.push({
+            type: "contentblock",
+            kind: "admonition",
+            titleLine: -1,
+            attrLine: i,
+            openLine: i + 1,
+            closeLine,
+            title: "",
+            admonitionType: admonBlockMatch[1].toLowerCase(),
           });
           i = closeLine + 1;
           continue;
@@ -1608,8 +1690,12 @@ function detectBlocks(doc: any): BlockInfo[] {
       }
     }
 
-    // Detect table block: |===
+    // Detect table block: optional [cols/options] attribute line + |===
     if (text === "|===") {
+      // Check if preceding line is a table attribute (e.g. [cols="...", options="header"])
+      const prevText = i > 1 ? doc.line(i - 1).text.trim() : "";
+      const hasAttrLine = /^\[.*(?:cols|options|%header|%autowidth|%footer|width|frame|grid|stripes).*\]$/.test(prevText);
+      const attrLine = hasAttrLine ? i - 1 : -1;
       let closeLine = -1;
       for (let j = i + 1; j <= doc.lines; j++) {
         if (doc.line(j).text.trim() === "|===") {
@@ -1618,17 +1704,18 @@ function detectBlocks(doc: any): BlockInfo[] {
         }
       }
       if (closeLine > 0) {
-        blocks.push({ type: "table", openLine: i, closeLine });
+        blocks.push({ type: "table", attrLine, openLine: i, closeLine });
         i = closeLine + 1;
         continue;
       }
     }
 
-    // Detect blockquote: [quote, Author] (optional) followed by ____
+    // Detect blockquote: [quote, Author] (optional) followed by ____ or paragraph
     const quoteAttrMatch = text.match(/^\[quote(?:,\s*(.+))?\]$/);
     if (quoteAttrMatch && i + 1 <= doc.lines) {
       const nextText = doc.line(i + 1).text.trim();
       if (/^_{4,}$/.test(nextText)) {
+        // Delimited blockquote: [quote] + ____...____
         const author = quoteAttrMatch[1] || "";
         let closeLine = -1;
         for (let j = i + 2; j <= doc.lines; j++) {
@@ -1642,6 +1729,17 @@ function detectBlocks(doc: any): BlockInfo[] {
           i = closeLine + 1;
           continue;
         }
+      } else if (nextText) {
+        // Paragraph-style blockquote: [quote] followed by paragraph text (until blank line)
+        const author = quoteAttrMatch[1] || "";
+        let endLine = i + 1;
+        for (let j = i + 2; j <= doc.lines; j++) {
+          if (!doc.line(j).text.trim()) break;
+          endLine = j;
+        }
+        blocks.push({ type: "blockquote", attrLine: i, openLine: i + 1, closeLine: endLine, author });
+        i = endLine + 1;
+        continue;
       }
     }
 
@@ -1989,6 +2087,23 @@ class PreviewLineWidget extends WidgetType {
     }
     const target = event.target as HTMLElement;
     return isInteractivePreviewTarget(target);
+  }
+}
+
+/** Returns inline CSS for common AsciiDoc roles, or empty string for unknown roles. */
+function getRoleStyle(role: string): string {
+  switch (role) {
+    case "lead": return "font-size:1.2em;line-height:1.6";
+    case "big": return "font-size:1.15em";
+    case "small": return "font-size:0.85em";
+    case "underline": return "text-decoration:underline";
+    case "overline": return "text-decoration:overline";
+    case "line-through": return "text-decoration:line-through";
+    case "text-left": return "display:inline-block;width:100%;text-align:left";
+    case "text-right": return "display:inline-block;width:100%;text-align:right";
+    case "text-center": return "display:inline-block;width:100%;text-align:center";
+    case "text-justify": return "display:inline-block;width:100%;text-align:justify";
+    default: return "";
   }
 }
 
@@ -2410,6 +2525,62 @@ class StemBlockPreviewWidget extends WidgetType {
 }
 
 // =====================================================
+// Document Header Widget (cursor outside header block)
+// =====================================================
+
+class DocHeaderWidget extends WidgetType {
+  constructor(
+    readonly title: string,
+    readonly attributes: Array<{ name: string; value: string }>,
+    readonly lineFrom: number,
+  ) { super(); }
+
+  toDOM(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-lp-docheader";
+    wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
+
+    // Header label
+    const label = document.createElement("div");
+    label.className = "cm-lp-docheader-label";
+    label.textContent = "Document Attributes";
+    wrap.appendChild(label);
+
+    // Attribute tags container
+    const tagsWrap = document.createElement("div");
+    tagsWrap.className = "cm-lp-docheader-tags";
+
+    for (const attr of this.attributes) {
+      const tag = document.createElement("span");
+      tag.className = "cm-lp-docheader-tag";
+      const nameEl = document.createElement("span");
+      nameEl.className = "cm-lp-docheader-tag-name";
+      nameEl.textContent = attr.name;
+      tag.appendChild(nameEl);
+      if (attr.value) {
+        const valueEl = document.createElement("span");
+        valueEl.className = "cm-lp-docheader-tag-value";
+        valueEl.textContent = attr.value;
+        tag.appendChild(valueEl);
+      }
+      tagsWrap.appendChild(tag);
+    }
+
+    wrap.appendChild(tagsWrap);
+    return wrap;
+  }
+
+  eq(other: DocHeaderWidget): boolean {
+    return this.title === other.title
+      && this.lineFrom === other.lineFrom
+      && this.attributes.length === other.attributes.length
+      && this.attributes.every((a, i) => a.name === other.attributes[i].name && a.value === other.attributes[i].value);
+  }
+
+  ignoreEvent(): boolean { return false; }
+}
+
+// =====================================================
 // Code Block Preview Widget (cursor outside block)
 // =====================================================
 
@@ -2612,9 +2783,35 @@ class ContentBlockPreviewWidget extends WidgetType {
     readonly titleHtml: string,
     readonly lines: Array<{ html: string; empty: boolean }>,
     readonly lineFrom: number,
+    readonly admonitionType?: string,
   ) { super(); }
 
   toDOM(): HTMLElement {
+    // Admonition blocks get the same styling as inline admonitions but with multi-line content
+    if (this.kind === "admonition" && this.admonitionType) {
+      const wrap = document.createElement("div");
+      wrap.className = `cm-lp-admon-block cm-lp-admon-${this.admonitionType}`;
+      wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
+      attachPreviewFocusHandlers(wrap, this.lineFrom, isInteractivePreviewTarget);
+
+      const labels: Record<string, string> = { note: "Note", tip: "Tip", warning: "Warning", caution: "Caution", important: "Important" };
+      const label = document.createElement("div");
+      label.className = "cm-lp-admon-label";
+      label.textContent = labels[this.admonitionType] || this.admonitionType;
+      wrap.appendChild(label);
+
+      const body = document.createElement("div");
+      body.className = "cm-lp-admon-block-body";
+      for (const line of this.lines) {
+        const lineEl = document.createElement("div");
+        lineEl.className = `cm-lp-content-block-line${line.empty ? " cm-lp-content-block-line-empty" : ""}`;
+        lineEl.innerHTML = line.html;
+        body.appendChild(lineEl);
+      }
+      wrap.appendChild(body);
+      return wrap;
+    }
+
     const wrap = document.createElement("div");
     wrap.className = `cm-lp-content-block-wrap cm-lp-content-block-${this.kind}`;
     wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
@@ -2662,7 +2859,8 @@ class ContentBlockPreviewWidget extends WidgetType {
     return this.kind === other.kind
       && this.titleHtml === other.titleHtml
       && JSON.stringify(this.lines) === JSON.stringify(other.lines)
-      && this.lineFrom === other.lineFrom;
+      && this.lineFrom === other.lineFrom
+      && this.admonitionType === other.admonitionType;
   }
 
   ignoreEvent(event: Event): boolean {
@@ -3319,6 +3517,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
 
   let blockIdx = 0;
   let i = 1;
+  let pendingRole: string | null = null; // tracks [.role] attribute for next line
 
   while (i <= doc.lines) {
     const block = blockIdx < blocks.length ? blocks[blockIdx] : null;
@@ -3352,7 +3551,24 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
         }
       }
 
-      if (block.type === "image") {
+      if (block.type === "docheader") {
+        if (!cursorInBlock) {
+          const firstLine = doc.line(blockStart);
+          builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
+          builder.add(firstLine.from, firstLine.to, Decoration.replace({
+            widget: new DocHeaderWidget(block.title, block.attributes, firstLine.from),
+          }));
+          // Hide remaining lines
+          for (let j = blockStart + 1; j <= blockEnd; j++) {
+            const line = doc.line(j);
+            builder.add(line.from, line.from, hiddenLineDecoration);
+            if (line.from < line.to) {
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+            }
+          }
+        }
+        // When cursorInBlock: raw text shown for editing
+      } else if (block.type === "image") {
         if (!cursorInBlock) {
           const firstLine = doc.line(blockStart);
           builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
@@ -3380,6 +3596,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               block.title ? renderInline(block.title) : "",
               contentLines,
               firstLine.from,
+              block.admonitionType,
             ),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
@@ -3509,7 +3726,13 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           // Preview mode: collect content lines, render widget
           const contentLines: string[] = [];
           let rawQuoteContent = "";
-          for (let j = block.openLine + 1; j < block.closeLine; j++) {
+          // For delimited quotes (____...____), content is between delimiters (exclusive).
+          // For paragraph-style quotes ([quote] + text), openLine IS the first content line
+          // and closeLine IS the last content line (inclusive).
+          const isDelimited = /^_{4,}$/.test(doc.line(block.openLine).text.trim());
+          const contentStart = isDelimited ? block.openLine + 1 : block.openLine;
+          const contentEnd = isDelimited ? block.closeLine - 1 : block.closeLine;
+          for (let j = contentStart; j <= contentEnd; j++) {
             const rawLineText = doc.line(j).text;
             if (rawQuoteContent) rawQuoteContent += "\n";
             rawQuoteContent += rawLineText;
@@ -3584,6 +3807,20 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     const isParagraph = isParagraphLikeLine(trimmedText);
     const headingMatch = trimmedText.match(/^(={1,5})\s+/);
 
+    // Detect role/attribute lines like [.lead], [.center], [.text-center], etc.
+    // These apply styling to the next line and should be hidden in preview
+    const roleMatch = trimmedText.match(/^\[\.([^\]]+)\]$/);
+    if (roleMatch && !(editorHasFocus && rawLines.has(i))) {
+      pendingRole = roleMatch[1];
+      // Hide the role attribute line
+      builder.add(line.from, line.from, hiddenLineDecoration);
+      if (line.from < line.to) {
+        builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+      }
+      i++;
+      continue;
+    }
+
     if (editorHasFocus && rawLines.has(i)) {
       const cachedHeight = heightCache.lineHeights.get(line.from);
       const estimatedRawHeight = cachedHeight != null && isParagraph
@@ -3598,12 +3835,14 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           builder.add(line.from, line.from, decoration);
         }
       }
+      pendingRole = null;
       i++;
       continue;
     }
 
     if (line.from === line.to) {
       builder.add(line.from, line.from, emptyLineDecoration);
+      pendingRole = null;
       i++;
       continue;
     }
@@ -3614,7 +3853,16 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       builder.add(line.from, line.from, listLineDecoration);
     }
 
-    const html = renderLineHtml(text, i, listNumbers);
+    // Apply pending role styling to this line
+    const role = pendingRole;
+    pendingRole = null;
+    let html = renderLineHtml(text, i, listNumbers);
+    if (role) {
+      const roleStyle = getRoleStyle(role);
+      if (roleStyle) {
+        html = `<span style="${roleStyle}">${html}</span>`;
+      }
+    }
     builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget(html, line.from) }));
 
     i++;
@@ -3772,6 +4020,52 @@ const livePreviewTheme = EditorView.theme({
     padding: "0 !important",
     margin: "0 !important",
     fontSize: "0 !important",
+  },
+
+  // Document header block
+  ".cm-lp-docheader": {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    padding: "8px 12px",
+    borderRadius: "6px",
+    background: "var(--asciidoc-bg-alt, rgba(128,128,128,0.06))",
+    border: "1px solid var(--asciidoc-border, rgba(128,128,128,0.15))",
+    margin: "2px 0",
+  },
+  ".cm-lp-docheader-label": {
+    fontSize: "0.7em",
+    fontWeight: "600",
+    textTransform: "uppercase" as any,
+    letterSpacing: "0.05em",
+    color: "var(--asciidoc-placeholder, #888)",
+    opacity: "0.7",
+  },
+  ".cm-lp-docheader-tags": {
+    display: "flex",
+    flexWrap: "wrap" as any,
+    gap: "4px",
+  },
+  ".cm-lp-docheader-tag": {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: "4px",
+    background: "var(--asciidoc-bg-alt, rgba(128,128,128,0.08))",
+    border: "1px solid var(--asciidoc-border, rgba(128,128,128,0.12))",
+    fontSize: "0.8em",
+    lineHeight: "1.4",
+    overflow: "hidden",
+  },
+  ".cm-lp-docheader-tag-name": {
+    padding: "1px 5px",
+    color: "var(--asciidoc-placeholder, #888)",
+    fontWeight: "500",
+  },
+  ".cm-lp-docheader-tag-value": {
+    padding: "1px 5px",
+    borderLeft: "1px solid var(--asciidoc-border, rgba(128,128,128,0.15))",
+    color: "var(--asciidoc-fg, #333)",
+    fontWeight: "400",
   },
 
   // Empty lines — keep full editor line height
@@ -4069,9 +4363,12 @@ const livePreviewTheme = EditorView.theme({
     wordWrap: "break-word",
   },
 
-  // Admonitions
+  // Admonitions (inline single-line)
   ".cm-lp-admon": { display: "inline-flex", alignItems: "baseline", gap: "14px", padding: "10px 14px", borderLeft: "4px solid #888", borderRadius: "0 4px 4px 0", background: "rgba(128,128,128,0.06)", width: "calc(100% - 28px)", lineHeight: "1.6", verticalAlign: "middle", boxSizing: "border-box" },
   ".cm-lp-admon-line": { lineHeight: "normal !important", paddingTop: "4px !important", paddingBottom: "4px !important" },
+  // Admonition blocks (multi-line with ==== delimiters)
+  ".cm-lp-admon-block": { display: "flex", flexDirection: "column", gap: "4px", padding: "10px 14px", borderLeft: "4px solid #888", borderRadius: "0 4px 4px 0", background: "rgba(128,128,128,0.06)", lineHeight: "1.6", boxSizing: "border-box", margin: "0.3em 0" },
+  ".cm-lp-admon-block-body": { display: "flex", flexDirection: "column", gap: "0.2em", textAlign: "center" },
   ".cm-lp-admon-label": { fontWeight: "700", fontSize: "0.8em", letterSpacing: "0.5px", flexShrink: "0", minWidth: "70px", display: "inline-block", textAlign: "center", whiteSpace: "nowrap" },
   ".cm-lp-admon-text": { flex: "1" },
   ".cm-lp-admon-note": { borderLeftColor: "#5bc0de", background: "rgba(91,192,222,0.08)" },
