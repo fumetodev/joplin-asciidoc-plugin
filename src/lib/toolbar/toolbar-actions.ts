@@ -65,9 +65,9 @@ export function wrapSelection(before: string, after: string) {
   }));
 }
 
-export function insertText(text: string, cursorOffset?: number) {
+export function insertText(text: string, cursorOffset?: number, selectFrom?: number, selectTo?: number) {
   window.dispatchEvent(new CustomEvent("editor-command", {
-    detail: { type: "insert", text, cursorOffset },
+    detail: { type: "insert", text, cursorOffset, selectFrom, selectTo },
   }));
 }
 
@@ -217,9 +217,9 @@ export const structureItems: ToolbarItem[] = [
 ];
 
 export const listItems: ToolbarItem[] = [
-  { id: "bullet", label: "Bullet", title: "Bullet List", icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>`, action: () => insertText("\n* Item 1\n* Item 2\n* Item 3\n") },
-  { id: "numbered", label: "Numbered", title: "Numbered List", icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="2" y="8" font-size="7" fill="currentColor" stroke="none" font-weight="600">1</text><text x="2" y="14" font-size="7" fill="currentColor" stroke="none" font-weight="600">2</text><text x="2" y="20" font-size="7" fill="currentColor" stroke="none" font-weight="600">3</text></svg>`, action: () => insertText("\n. First\n. Second\n. Third\n") },
-  { id: "checklist", label: "Checklist", title: "Checklist", icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><line x1="13" y1="6" x2="21" y2="6"/><line x1="13" y1="12" x2="21" y2="12"/><line x1="13" y1="18" x2="21" y2="18"/></svg>`, action: () => insertText("\n* [ ] Task 1\n* [ ] Task 2\n* [x] Done\n") },
+  { id: "bullet", label: "Bullet", title: "Bullet List", icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>`, action: () => insertText("\n* Item 1\n", undefined, 3, 9) },
+  { id: "numbered", label: "Numbered", title: "Numbered List", icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="2" y="8" font-size="7" fill="currentColor" stroke="none" font-weight="600">1</text><text x="2" y="14" font-size="7" fill="currentColor" stroke="none" font-weight="600">2</text><text x="2" y="20" font-size="7" fill="currentColor" stroke="none" font-weight="600">3</text></svg>`, action: () => insertText("\n. First\n", undefined, 3, 8) },
+  { id: "checklist", label: "Checklist", title: "Checklist", icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><line x1="13" y1="6" x2="21" y2="6"/><line x1="13" y1="12" x2="21" y2="12"/><line x1="13" y1="18" x2="21" y2="18"/></svg>`, action: () => insertText("\n* [ ] Task 1\n", undefined, 7, 13) },
   { id: "deflist", label: "Def List", title: "Definition List", icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="12" y2="6"/><line x1="7" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="12" y2="18"/><circle cx="15" cy="6" r="1" fill="currentColor" stroke="none"/></svg>`, action: () => insertText("\nTerm:: Definition\n") },
 ];
 

@@ -236,12 +236,15 @@ function handleEditorCommand(e: Event) {
       });
     }
   } else if (type === "insert") {
-    const cursorPos = (e as CustomEvent).detail.cursorOffset != null
-      ? from + (e as CustomEvent).detail.cursorOffset
-      : from + text.length;
+    const detail = (e as CustomEvent).detail;
+    const selectFrom = detail.selectFrom;
+    const selectTo = detail.selectTo;
+    const selection = selectFrom != null && selectTo != null
+      ? { anchor: from + selectFrom, head: from + selectTo }
+      : { anchor: detail.cursorOffset != null ? from + detail.cursorOffset : from + text.length };
     editorView.dispatch({
       changes: { from, insert: text },
-      selection: { anchor: cursorPos },
+      selection,
     });
   } else if (type === "heading") {
     const firstLine = editorView.state.doc.lineAt(from);
