@@ -770,6 +770,7 @@ html, body {
 	--asciidoc-scrollbar-track: #1e1e1e;
 	--asciidoc-scrollbar-thumb: #555;
 	--asciidoc-scrollbar-thumb-hover: #777;
+	color-scheme: dark;
 }
 
 

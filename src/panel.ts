@@ -15,6 +15,7 @@ import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingE
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
 import { buildRibbon } from "./lib/toolbar/ribbon";
 import { saveNoteContent, requestResources } from "./lib/ipc";
+import { setMermaidTheme } from "./lib/utils/mermaid-render";
 
 declare const webviewApi: {
   postMessage(msg: any): Promise<any>;
@@ -420,6 +421,7 @@ function handleMessage(msg: any) {
       root.classList.remove("dark-theme", "light-theme");
       root.classList.add(msg.value === "dark" ? "dark-theme" : "light-theme");
     }
+    setMermaidTheme(msg.value === "dark");
   }
 }
 
@@ -523,6 +525,7 @@ function init() {
         root.classList.remove("dark-theme", "light-theme");
         root.classList.add(response.isDark ? "dark-theme" : "light-theme");
       }
+      setMermaidTheme(response.isDark);
     }
 
     // Load initial note if available

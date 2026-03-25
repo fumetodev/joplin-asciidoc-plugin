@@ -3,6 +3,7 @@ import { Prec, RangeSetBuilder, StateEffect } from "@codemirror/state";
 import { normalizeImageTarget } from "../utils/image-target";
 import { type ImageInsertOptions, parseImageMacroLine, serializeImageBlock } from "../utils/image-macro";
 import { renderMath, type MathNotation } from "../utils/math-render";
+import { getCachedMermaidSvg, renderMermaidAsync, getMermaidPlaceholderHtml, getMermaidModule } from "../utils/mermaid-render";
 
 // Joplin resource URL cache for resolving :/resourceId patterns
 const resourceUrlCache = new Map<string, string>();
@@ -63,6 +64,13 @@ interface StemBlockInfo {
   rawNotation: "stem" | "latexmath" | "asciimath"; // original attribute value
 }
 
+interface MermaidBlockInfo {
+  type: "mermaid";
+  attrLine: number;   // line with [mermaid]
+  openLine: number;   // line with opening ----
+  closeLine: number;  // line with closing ----
+}
+
 interface DocHeaderBlockInfo {
   type: "docheader";
   startLine: number;  // first line of the header block
@@ -76,7 +84,7 @@ function resolveStemNotation(raw: "stem" | "latexmath" | "asciimath"): MathNotat
   return raw === "stem" ? documentStemNotation : raw;
 }
 
-type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo | DocHeaderBlockInfo;
+type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo | MermaidBlockInfo | DocHeaderBlockInfo;
 
 interface PreviewHeightCache {
   lineHeights: Map<number, number>;
@@ -356,6 +364,10 @@ function serializeBlockquote(author: string, content: string, hadAttributeLine: 
 
 function serializeStemBlock(notation: string, expression: string): string {
   return `[${notation}]\n++++\n${expression}\n++++`;
+}
+
+function serializeMermaidBlock(source: string): string {
+  return `[mermaid]\n----\n${source}\n----`;
 }
 
 function deleteBlockRange(view: EditorView, blockFrom: number, blockTo: number) {
@@ -804,6 +816,362 @@ function openStemBlockEditorModal(
 
   footerRight.append(cancelBtn, saveBtn);
   requestAnimationFrame(() => { overlay.focus(); mathInput.focus(); });
+}
+
+// ── Mermaid diagram type detection & syntax toolbar data ──
+
+function detectMermaidType(source: string): string {
+  for (const line of source.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("%%") || trimmed.startsWith("---")) continue;
+    if (/^flowchart\b/i.test(trimmed) || /^graph\b/i.test(trimmed)) return "flowchart";
+    if (/^sequenceDiagram/i.test(trimmed)) return "sequence";
+    if (/^classDiagram/i.test(trimmed)) return "classDiagram";
+    if (/^stateDiagram/i.test(trimmed)) return "stateDiagram";
+    if (/^erDiagram/i.test(trimmed)) return "erDiagram";
+    if (/^gantt/i.test(trimmed)) return "gantt";
+    if (/^pie/i.test(trimmed)) return "pie";
+    if (/^journey/i.test(trimmed)) return "journey";
+    if (/^gitGraph/i.test(trimmed)) return "gitGraph";
+    if (/^mindmap/i.test(trimmed)) return "mindmap";
+    if (/^timeline/i.test(trimmed)) return "timeline";
+    if (/^quadrantChart/i.test(trimmed)) return "quadrant";
+    if (/^sankey/i.test(trimmed)) return "sankey";
+    if (/^xychart/i.test(trimmed)) return "xychart";
+    if (/^block-beta/i.test(trimmed)) return "block";
+    if (/^packet-beta/i.test(trimmed)) return "packet";
+    if (/^kanban/i.test(trimmed)) return "kanban";
+    if (/^architecture/i.test(trimmed)) return "architecture";
+    if (/^C4Context/i.test(trimmed)) return "c4context";
+    if (/^C4Container/i.test(trimmed)) return "c4container";
+    if (/^C4Component/i.test(trimmed)) return "c4component";
+    if (/^C4Deployment/i.test(trimmed)) return "c4deployment";
+    if (/^requirementDiagram/i.test(trimmed)) return "requirement";
+    if (/^zenuml/i.test(trimmed)) return "zenuml";
+    break;
+  }
+  return "flowchart";
+}
+
+interface MermaidSyntaxElement { label: string; syntax: string }
+
+const mermaidSyntaxToolbar: Record<string, MermaidSyntaxElement[]> = {
+  flowchart: [
+    { label: "Rectangle", syntax: 'id["Label"]' },
+    { label: "Round", syntax: 'id("Label")' },
+    { label: "Diamond", syntax: 'id{"Label"}' },
+    { label: "Arrow", syntax: "A --> B" },
+    { label: "Arrow+Text", syntax: 'A -->|"text"| B' },
+    { label: "Dotted", syntax: "A -.-> B" },
+    { label: "Thick", syntax: "A ==> B" },
+    { label: "Subgraph", syntax: "subgraph title\n    \nend" },
+  ],
+  sequence: [
+    { label: "Participant", syntax: "participant Alice" },
+    { label: "Actor", syntax: "actor User" },
+    { label: "Message", syntax: "Alice->>Bob: Message" },
+    { label: "Reply", syntax: "Alice-->>Bob: Reply" },
+    { label: "Note", syntax: "Note over Alice,Bob: Text" },
+    { label: "Alt", syntax: "alt Condition\n    Alice->>Bob: Yes\nelse Otherwise\n    Alice->>Bob: No\nend" },
+    { label: "Loop", syntax: "loop Every minute\n    Alice->>Bob: Ping\nend" },
+  ],
+  classDiagram: [
+    { label: "Class", syntax: "class ClassName {\n    +String field\n    +method() ReturnType\n}" },
+    { label: "Inherit", syntax: "Parent <|-- Child" },
+    { label: "Compose", syntax: "ClassA *-- ClassB" },
+    { label: "Aggregate", syntax: "ClassA o-- ClassB" },
+    { label: "Associate", syntax: "ClassA --> ClassB" },
+  ],
+  stateDiagram: [
+    { label: "State", syntax: "State1 : Description" },
+    { label: "Transition", syntax: "State1 --> State2" },
+    { label: "Trans+Text", syntax: "State1 --> State2 : Event" },
+    { label: "Start", syntax: "[*] --> State1" },
+    { label: "End", syntax: "State1 --> [*]" },
+    { label: "Choice", syntax: "state check <<choice>>\nState1 --> check\ncheck --> State2 : Yes\ncheck --> State3 : No" },
+    { label: "Composite", syntax: "state CompositeState {\n    [*] --> Inner1\n    Inner1 --> [*]\n}" },
+  ],
+  erDiagram: [
+    { label: "Entity", syntax: "ENTITY {\n    string name\n    int id PK\n}" },
+    { label: "One-Many", syntax: 'PARENT ||--o{ CHILD : "has"' },
+    { label: "One-One", syntax: 'TABLE_A ||--|| TABLE_B : "maps"' },
+    { label: "Many-Many", syntax: 'TABLE_A }o--o{ TABLE_B : "relates"' },
+    { label: "Attribute", syntax: "    string fieldName" },
+  ],
+  gantt: [
+    { label: "Section", syntax: "section Section Name" },
+    { label: "Task", syntax: "Task name : task1, 2026-04-01, 7d" },
+    { label: "Active", syntax: "Active task : active, a1, 2026-04-01, 5d" },
+    { label: "Done", syntax: "Done task : done, d1, 2026-03-01, 2026-03-15" },
+    { label: "Milestone", syntax: "Milestone : milestone, m1, 2026-04-15, 0d" },
+  ],
+  mindmap: [
+    { label: "Root", syntax: "root((Central Topic))" },
+    { label: "Child", syntax: "    Topic" },
+    { label: "Square", syntax: "    [Topic]" },
+    { label: "Rounded", syntax: "    (Topic)" },
+    { label: "Circle", syntax: "    ((Topic))" },
+  ],
+};
+
+function openMermaidBlockEditorModal(
+  view: EditorView,
+  source: string,
+  blockFrom: number,
+  blockTo: number,
+) {
+  const { overlay, modal, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Mermaid Diagram");
+  modal.style.width = "min(1200px, 100%)";
+  // Allow the body to expand and fill the modal for the two-panel layout
+  body.style.flex = "1";
+  body.style.minHeight = "0";
+  body.style.overflow = "hidden";
+
+  // ── Two-panel layout ──
+  const panels = document.createElement("div");
+  panels.className = "cm-lp-mermaid-editor-panels";
+
+  const leftPanel = document.createElement("div");
+  leftPanel.className = "cm-lp-mermaid-editor-left";
+
+  const rightPanel = document.createElement("div");
+  rightPanel.className = "cm-lp-mermaid-editor-right";
+
+  // ── Diagram type selector (custom dropdown, not native <select>) ──
+  const diagramTypes = [
+    "flowchart", "sequence", "classDiagram", "stateDiagram", "erDiagram",
+    "gantt", "pie", "journey", "gitGraph", "mindmap", "timeline", "quadrant",
+    "sankey", "xychart", "block", "packet", "kanban", "architecture",
+    "c4context", "c4container", "c4component", "c4deployment", "requirement", "zenuml",
+  ];
+
+  let selectedDiagramType = detectMermaidType(source);
+
+  const typeDropdownWrap = document.createElement("div");
+  typeDropdownWrap.className = "cm-lp-mermaid-type-dropdown";
+
+  const typeButton = document.createElement("button");
+  typeButton.type = "button";
+  typeButton.className = "cm-lp-block-editor-input cm-lp-mermaid-type-btn";
+  typeButton.textContent = selectedDiagramType;
+
+  const typeArrow = document.createElement("span");
+  typeArrow.className = "cm-lp-mermaid-type-arrow";
+  typeArrow.textContent = "\u25BE"; // ▾
+  typeButton.appendChild(typeArrow);
+
+  const typeMenu = document.createElement("div");
+  typeMenu.className = "cm-lp-mermaid-type-menu";
+
+  function buildTypeMenu() {
+    typeMenu.innerHTML = "";
+    for (const t of diagramTypes) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "cm-lp-mermaid-type-item" + (t === selectedDiagramType ? " selected" : "");
+      item.textContent = t;
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        selectedDiagramType = t;
+        typeButton.textContent = t;
+        typeButton.appendChild(typeArrow);
+        typeMenu.classList.remove("open");
+        rebuildToolbar();
+      });
+      typeMenu.appendChild(item);
+    }
+  }
+  buildTypeMenu();
+
+  typeButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    typeMenu.classList.toggle("open");
+  });
+
+  // Close menu when clicking elsewhere in the modal
+  modal.addEventListener("click", () => typeMenu.classList.remove("open"));
+
+  typeDropdownWrap.append(typeButton, typeMenu);
+
+  const typeField = makeBlockEditorField("Diagram Type", typeDropdownWrap);
+  leftPanel.appendChild(typeField);
+
+  // ── Context-sensitive syntax toolbar ──
+  const toolbarWrap = document.createElement("div");
+  toolbarWrap.className = "cm-lp-mermaid-syntax-toolbar";
+
+  function rebuildToolbar() {
+    toolbarWrap.innerHTML = "";
+    const elements = mermaidSyntaxToolbar[selectedDiagramType] || [];
+    for (const elem of elements) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "cm-lp-mermaid-syntax-btn";
+      btn.textContent = elem.label;
+      btn.title = elem.syntax.substring(0, 60);
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const start = sourceInput.selectionStart;
+        const before = sourceInput.value.substring(0, start);
+        const after = sourceInput.value.substring(sourceInput.selectionEnd);
+        const insertion = (before.length > 0 && !before.endsWith("\n") ? "\n" : "") + elem.syntax;
+        sourceInput.value = before + insertion + after;
+        sourceInput.selectionStart = sourceInput.selectionEnd = start + insertion.length;
+        sourceInput.focus();
+        updatePreview();
+      });
+      toolbarWrap.appendChild(btn);
+    }
+  }
+  rebuildToolbar();
+  leftPanel.appendChild(toolbarWrap);
+
+  // Type change is handled by the custom dropdown click handlers above
+
+  // ── Source textarea ──
+  const sourceInput = document.createElement("textarea");
+  sourceInput.className = "cm-lp-block-editor-textarea cm-lp-block-editor-textarea-code";
+  sourceInput.value = source;
+  sourceInput.spellcheck = false;
+  sourceInput.placeholder = "flowchart LR\n    A[Start] --> B[Process] --> C[End]";
+  sourceInput.style.flex = "1";
+  sourceInput.style.minHeight = "200px";
+  leftPanel.appendChild(sourceInput);
+
+  // ── Live preview (right panel) with zoom & pan ──
+  const preview = document.createElement("div");
+  preview.className = "cm-lp-mermaid-preview-inner";
+
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
+
+  function applyTransform() {
+    preview.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+  }
+
+  // Zoom via scroll wheel
+  rightPanel.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    scale = Math.min(5, Math.max(0.1, scale + delta));
+    applyTransform();
+  }, { passive: false });
+
+  // Pan via click-drag
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panOriginX = 0;
+  let panOriginY = 0;
+
+  rightPanel.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    isPanning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panOriginX = panX;
+    panOriginY = panY;
+    rightPanel.style.cursor = "grabbing";
+    e.preventDefault();
+  });
+
+  const onMouseMove = (e: MouseEvent) => {
+    if (!isPanning) return;
+    panX = panOriginX + (e.clientX - panStartX);
+    panY = panOriginY + (e.clientY - panStartY);
+    applyTransform();
+  };
+
+  const onMouseUp = () => {
+    if (!isPanning) return;
+    isPanning = false;
+    rightPanel.style.cursor = "grab";
+  };
+
+  // Use capture phase so we catch mouseup before the modal's stopPropagation handlers
+  document.addEventListener("mousemove", onMouseMove, true);
+  document.addEventListener("mouseup", onMouseUp, true);
+
+  // Clean up document listeners when modal closes
+  const origClose = close;
+  const closeWithCleanup = () => {
+    document.removeEventListener("mousemove", onMouseMove, true);
+    document.removeEventListener("mouseup", onMouseUp, true);
+    origClose();
+  };
+
+  function resetView() {
+    scale = 1;
+    panX = 0;
+    panY = 0;
+    applyTransform();
+  }
+
+  let previewTimer: ReturnType<typeof setTimeout> | null = null;
+  const updatePreview = () => {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(async () => {
+      const src = sourceInput.value.trim();
+      if (!src) {
+        preview.innerHTML = '<span style="color:var(--asciidoc-placeholder,#888);font-style:italic">[empty diagram]</span>';
+        return;
+      }
+      try {
+        const mm = getMermaidModule();
+        const id = `mermaid-modal-${Date.now()}`;
+        const { svg } = await mm.render(id, src);
+        preview.innerHTML = svg;
+        const svgEl = preview.querySelector("svg");
+        if (svgEl) { svgEl.style.maxWidth = "100%"; svgEl.style.height = "auto"; }
+      } catch (e: any) {
+        const msg = (e.message || String(e)).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        preview.innerHTML = `<div style="color:#d9534f;font-style:italic;padding:12px">${msg}</div>`;
+      }
+    }, 300);
+  };
+  updatePreview();
+  sourceInput.addEventListener("input", updatePreview);
+  rightPanel.appendChild(preview);
+
+  panels.append(leftPanel, rightPanel);
+  body.appendChild(panels);
+
+  // ── Footer buttons ──
+  const deleteBtn = makeBlockEditorButton("Delete Diagram");
+  deleteBtn.classList.add("cm-lp-block-editor-btn-danger");
+  deleteBtn.addEventListener("click", (e) => {
+    consumeEvent(e);
+    deleteBlockRange(view, blockFrom, blockTo);
+    closeWithCleanup();
+  });
+  footerLeft.appendChild(deleteBtn);
+
+  const resetViewBtn = makeBlockEditorButton("Reset View");
+  resetViewBtn.addEventListener("click", (e) => {
+    consumeEvent(e);
+    resetView();
+  });
+  footerLeft.appendChild(resetViewBtn);
+
+  const cancelBtn = makeBlockEditorButton("Cancel");
+  cancelBtn.addEventListener("click", (e) => { consumeEvent(e); closeWithCleanup(); });
+
+  const saveBtn = makeBlockEditorButton("Save", "primary");
+  saveBtn.addEventListener("click", (e) => {
+    consumeEvent(e);
+    view.dispatch({
+      changes: {
+        from: blockFrom,
+        to: blockTo,
+        insert: serializeMermaidBlock(sourceInput.value),
+      },
+    });
+    closeWithCleanup();
+  });
+
+  footerRight.append(cancelBtn, saveBtn);
+  requestAnimationFrame(() => { overlay.focus(); sourceInput.focus(); });
 }
 
 function openImageEditorModal(view: EditorView, info: ImageBlockInfo) {
@@ -1285,6 +1653,7 @@ function getBlockStartLineNumber(block: BlockInfo): number {
   if (block.type === "blockquote" && block.attrLine > 0) return block.attrLine;
   if (block.type === "table" && block.attrLine > 0) return block.attrLine;
   if (block.type === "stem") return block.attrLine;
+  if (block.type === "mermaid") return block.attrLine;
   if (block.type === "image" && block.titleLine > 0) return block.titleLine;
   if (block.type === "contentblock" && block.titleLine > 0) return block.titleLine;
   if (block.type === "contentblock" && block.attrLine > 0) return block.attrLine;
@@ -1296,6 +1665,7 @@ function getBlockEndLineNumber(block: BlockInfo): number {
   if (block.type === "docheader") return block.endLine;
   if (block.type === "image") return block.imageLine;
   if (block.type === "stem") return block.closeLine;
+  if (block.type === "mermaid") return block.closeLine;
   return block.closeLine;
 }
 
@@ -1325,6 +1695,16 @@ function openPreviewBlockModal(view: EditorView, blockInfo: { block: BlockInfo; 
       mathContent += view.state.doc.line(j).text;
     }
     openStemBlockEditorModal(view, mathContent, block.rawNotation, blockFrom, blockTo);
+    return true;
+  }
+
+  if (block.type === "mermaid") {
+    let diagramSource = "";
+    for (let j = block.openLine + 1; j < block.closeLine; j++) {
+      if (diagramSource) diagramSource += "\n";
+      diagramSource += view.state.doc.line(j).text;
+    }
+    openMermaidBlockEditorModal(view, diagramSource, blockFrom, blockTo);
     return true;
   }
 
@@ -1644,6 +2024,26 @@ function detectBlocks(doc: any): BlockInfo[] {
             closeLine,
             rawNotation,
           });
+          i = closeLine + 1;
+          continue;
+        }
+      }
+    }
+
+    // Detect mermaid block: [mermaid] followed by ----
+    // Must come before code block detection to avoid matching as a no-language code block.
+    if (/^\[mermaid\]$/.test(text) && i + 1 <= doc.lines) {
+      const nextText = doc.line(i + 1).text.trim();
+      if (/^-{4,}$/.test(nextText)) {
+        let closeLine = -1;
+        for (let j = i + 2; j <= doc.lines; j++) {
+          if (/^-{4,}$/.test(doc.line(j).text.trim())) {
+            closeLine = j;
+            break;
+          }
+        }
+        if (closeLine > 0) {
+          blocks.push({ type: "mermaid", attrLine: i, openLine: i + 1, closeLine });
           i = closeLine + 1;
           continue;
         }
@@ -2509,6 +2909,64 @@ class StemBlockPreviewWidget extends WidgetType {
   eq(other: StemBlockPreviewWidget): boolean {
     return this.expression === other.expression
       && this.rawNotation === other.rawNotation
+      && this.lineFrom === other.lineFrom
+      && this.blockFrom === other.blockFrom
+      && this.blockTo === other.blockTo;
+  }
+
+  ignoreEvent(event: Event): boolean {
+    return event.type === "mousedown"
+      || event.type === "mouseup"
+      || event.type === "mousemove"
+      || event.type === "click"
+      || event.type === "selectstart"
+      || event.type === "dragstart";
+  }
+}
+
+// =====================================================
+// Mermaid Block Preview Widget (cursor outside block)
+// =====================================================
+
+class MermaidBlockPreviewWidget extends WidgetType {
+  constructor(
+    readonly source: string,
+    readonly svgHtml: string | null,
+    readonly lineFrom: number,
+    readonly blockFrom: number,
+    readonly blockTo: number,
+  ) { super(); }
+
+  toDOM(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-lp-mermaid-block";
+    wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
+
+    attachBlockModalHandlers(wrap, (view) => {
+      openMermaidBlockEditorModal(view, this.source, this.blockFrom, this.blockTo);
+    });
+
+    const content = document.createElement("div");
+    content.className = "cm-lp-mermaid-content";
+
+    if (this.svgHtml) {
+      content.innerHTML = this.svgHtml;
+      const svg = content.querySelector("svg");
+      if (svg) {
+        svg.style.maxWidth = "100%";
+        svg.style.height = "auto";
+      }
+    } else {
+      content.innerHTML = getMermaidPlaceholderHtml();
+    }
+
+    wrap.appendChild(content);
+    return wrap;
+  }
+
+  eq(other: MermaidBlockPreviewWidget): boolean {
+    return this.source === other.source
+      && this.svgHtml === other.svgHtml
       && this.lineFrom === other.lineFrom
       && this.blockFrom === other.blockFrom
       && this.blockTo === other.blockTo;
@@ -3791,6 +4249,40 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
         }
         // When cursorInBlock: raw text shown. Height stabilization handled
         // by the generic non-code path at the top of the block processing.
+      } else if (block.type === "mermaid") {
+        if (!cursorInBlock) {
+          let diagramSource = "";
+          for (let j = block.openLine + 1; j < block.closeLine; j++) {
+            if (diagramSource) diagramSource += "\n";
+            diagramSource += doc.line(j).text;
+          }
+
+          const cachedSvg = getCachedMermaidSvg(diagramSource);
+          if (!cachedSvg) {
+            renderMermaidAsync(diagramSource, () => {
+              refreshLivePreview(view);
+            });
+          }
+
+          const firstLine = doc.line(blockStart);
+          builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
+          builder.add(firstLine.from, firstLine.to, Decoration.replace({
+            widget: new MermaidBlockPreviewWidget(
+              diagramSource,
+              cachedSvg,
+              firstLine.from,
+              fromPos,
+              toPos,
+            ),
+          }));
+          for (let j = blockStart + 1; j <= blockEnd; j++) {
+            const line = doc.line(j);
+            builder.add(line.from, line.from, hiddenLineDecoration);
+            if (line.from < line.to) {
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+            }
+          }
+        }
       }
 
       i = blockEnd + 1;
@@ -3938,7 +4430,7 @@ const livePreviewPlugin = ViewPlugin.fromClass(
           const blockEnd = getBlockEndLineNumber(block);
           if (cursorLine >= blockStart && cursorLine <= blockEnd) {
             // Don't auto-open for content blocks (they show raw) or images (complex)
-            if (block.type === "code" || block.type === "table" || block.type === "blockquote" || block.type === "stem") {
+            if (block.type === "code" || block.type === "table" || block.type === "blockquote" || block.type === "stem" || block.type === "mermaid") {
               // Delay slightly so CM6 finishes its update cycle
               setTimeout(() => {
                 if (blockEditorOverlay) return; // Modal already opened
@@ -4415,6 +4907,147 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-lp-math-empty": {
     fontStyle: "italic",
+  },
+
+  // Mermaid Block Preview
+  ".cm-lp-mermaid-block": {
+    display: "block",
+    width: "100%",
+    margin: "0.5em 0",
+    padding: "0.8em 1em",
+    textAlign: "center",
+    background: "var(--lp-special-block-bg, rgba(0,0,0,0.03))",
+    borderRadius: "4px",
+    border: "1px solid var(--lp-special-block-border, rgba(128,128,128,0.15))",
+    overflow: "auto",
+    cursor: "pointer",
+    boxSizing: "border-box",
+  },
+  ".cm-lp-mermaid-content": {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: "3em",
+  },
+  ".cm-lp-mermaid-content svg": {
+    maxWidth: "100%",
+    height: "auto",
+  },
+  ".cm-lp-mermaid-placeholder": {
+    color: "var(--asciidoc-placeholder, #888)",
+    fontStyle: "italic",
+    fontSize: "0.9em",
+  },
+  ".cm-lp-mermaid-error": {
+    color: "#d9534f",
+    fontStyle: "italic",
+    fontSize: "0.85em",
+    padding: "4px 8px",
+  },
+  // Mermaid overlay editor two-panel layout
+  ".cm-lp-mermaid-editor-panels": {
+    display: "flex",
+    gap: "16px",
+    flex: "1",
+    minHeight: "300px",
+  },
+  ".cm-lp-mermaid-editor-left": {
+    flex: "1",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    minWidth: "0",
+  },
+  ".cm-lp-mermaid-editor-right": {
+    flex: "1",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid var(--asciidoc-border, #ddd)",
+    borderRadius: "8px",
+    overflow: "hidden",
+    minWidth: "0",
+    background: "rgba(128,128,128,0.04)",
+    cursor: "grab",
+    position: "relative",
+  },
+  ".cm-lp-mermaid-preview-inner": {
+    padding: "16px",
+    textAlign: "center",
+    width: "100%",
+    transformOrigin: "center center",
+    userSelect: "none",
+  },
+  ".cm-lp-mermaid-syntax-toolbar": {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "4px",
+  },
+  ".cm-lp-mermaid-syntax-btn": {
+    padding: "3px 8px",
+    fontSize: "0.8rem",
+    borderRadius: "4px",
+    border: "1px solid var(--asciidoc-border, #ddd)",
+    background: "rgba(128,128,128,0.08)",
+    color: "inherit",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  ".cm-lp-mermaid-syntax-btn:hover": {
+    background: "rgba(128,128,128,0.18)",
+  },
+  // Custom diagram type dropdown
+  ".cm-lp-mermaid-type-dropdown": {
+    position: "relative",
+  },
+  ".cm-lp-mermaid-type-btn": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  ".cm-lp-mermaid-type-arrow": {
+    marginLeft: "8px",
+    opacity: "0.6",
+  },
+  ".cm-lp-mermaid-type-menu": {
+    display: "none",
+    position: "absolute",
+    top: "100%",
+    left: "0",
+    right: "0",
+    maxHeight: "180px",
+    overflowY: "auto",
+    background: "var(--asciidoc-preview-bg, #fafafa)",
+    border: "1px solid var(--asciidoc-border, #ddd)",
+    borderRadius: "6px",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+    zIndex: "50",
+    marginTop: "2px",
+    padding: "4px 0",
+  },
+  ".cm-lp-mermaid-type-menu.open": {
+    display: "block",
+  },
+  ".cm-lp-mermaid-type-item": {
+    display: "block",
+    width: "100%",
+    padding: "6px 14px",
+    border: "none",
+    background: "transparent",
+    color: "inherit",
+    fontSize: "0.95rem",
+    textAlign: "left",
+    cursor: "pointer",
+    boxSizing: "border-box",
+  },
+  ".cm-lp-mermaid-type-item:hover": {
+    background: "rgba(128,128,128,0.15)",
+  },
+  ".cm-lp-mermaid-type-item.selected": {
+    background: "var(--asciidoc-link, #2156a5)",
+    color: "#fff",
   },
 
   // Code Block Preview

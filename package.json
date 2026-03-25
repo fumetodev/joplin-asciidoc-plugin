@@ -25,8 +25,10 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.8",
     "@lezer/highlight": "^1.2.1",
+    "@mermaid-js/layout-elk": "^0.2.1",
     "asciidoctor": "^3.0.4",
     "asciimath2tex": "^1.5.0",
-    "katex": "^0.16.39"
+    "katex": "^0.16.39",
+    "mermaid": "^11.13.0"
   }
 }

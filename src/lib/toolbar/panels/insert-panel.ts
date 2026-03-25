@@ -12,6 +12,8 @@ import {
   handleImage as doImage,
   handleLink as doLink,
   handleMath,
+  handleMermaid,
+  mermaidDiagramTypes,
   mathNotations,
   symbolCategories,
   insertText,
@@ -52,6 +54,7 @@ interface DropdownState {
   source: boolean;
   table: boolean;
   blocks: boolean;
+  diagram: boolean;
   math: boolean;
   image: boolean;
   link: boolean;
@@ -72,6 +75,7 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
     source: false,
     table: false,
     blocks: false,
+    diagram: false,
     math: false,
     image: false,
     link: false,
@@ -169,6 +173,7 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
       case "source": showSourceDropdown(); break;
       case "table": showTableDropdown(); break;
       case "blocks": showBlocksDropdown(); break;
+      case "diagram": showDiagramDropdown(); break;
       case "math": showMathDropdown(); break;
       case "image": showImageDropdown(); break;
       case "link": showLinkDropdown(); break;
@@ -273,6 +278,24 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
       const btn = document.createElement("button");
       btn.textContent = item.label;
       btn.addEventListener("click", () => { handleBlock(item.type); closeAll(); });
+      dd.appendChild(btn);
+    }
+    wrap.appendChild(dd);
+    positionDropdown(dd);
+  }
+
+  // -- Diagram --
+  function showDiagramDropdown() {
+    const wrap = wrapEls.get("diagram")!;
+    const dd = document.createElement("div");
+    dd.className = "split-dropdown open";
+    dd.setAttribute("role", "menu");
+    dd.style.maxHeight = "300px";
+    dd.style.overflowY = "auto";
+    for (const type of mermaidDiagramTypes) {
+      const btn = document.createElement("button");
+      btn.textContent = type.label;
+      btn.addEventListener("click", () => { handleMermaid(type.value); closeAll(); });
       dd.appendChild(btn);
     }
     wrap.appendChild(dd);
@@ -1068,6 +1091,21 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
     listsRow.appendChild(btn);
   }
   wrapper.appendChild(createRibbonSection("Lists", listsRow));
+
+  // -----------------------------------------------------------------------
+  // Diagrams section
+  // -----------------------------------------------------------------------
+
+  const diagramRow = document.createElement("div");
+  diagramRow.className = "ribbon-row";
+  diagramRow.appendChild(createSplitButton(
+    "diagram",
+    `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="8" y="14" width="7" height="7" rx="1"/><line x1="6.5" y1="10" x2="11.5" y2="14"/><line x1="17.5" y1="10" x2="11.5" y2="14"/></svg>`,
+    "Insert Mermaid Diagram",
+    () => { handleMermaid("flowchart"); closeAll(); },
+    "Diagram type",
+  ));
+  wrapper.appendChild(createRibbonSection("Diagrams", diagramRow));
 
   // -----------------------------------------------------------------------
   // Content section

@@ -1,4 +1,5 @@
 const path = require("path");
+const webpack = require("webpack");
 const CopyPlugin = require("copy-webpack-plugin");
 
 module.exports = (env, argv) => {
@@ -38,6 +39,7 @@ module.exports = (env, argv) => {
       },
       resolve: {
         extensions: [".ts", ".js"],
+        conditionNames: ["import", "module", "browser", "default"],
       },
       module: {
         rules: [
@@ -53,6 +55,9 @@ module.exports = (env, argv) => {
             { from: "node_modules/katex/dist/fonts", to: "styles/fonts" },
           ],
         }),
+        // Force everything into a single chunk — Mermaid/ELK use internal import()
+        // which would create separate chunks that Joplin's webview cannot load.
+        new webpack.optimize.LimitChunkCountPlugin({ maxChunks: 1 }),
       ],
       devtool: isDev ? "source-map" : false,
     },

@@ -190,6 +190,67 @@ export function handleInclude(path: string, levelOffset: string, lines: string, 
   insertText(`\ninclude::${path.trim()}[${attrStr}]\n`);
 }
 
+// ── Mermaid diagram support ──
+
+export const mermaidDiagramTypes = [
+  { label: "Flowchart", value: "flowchart" },
+  { label: "Sequence Diagram", value: "sequence" },
+  { label: "Class Diagram", value: "classDiagram" },
+  { label: "State Diagram", value: "stateDiagram" },
+  { label: "ER Diagram", value: "erDiagram" },
+  { label: "Gantt Chart", value: "gantt" },
+  { label: "Pie Chart", value: "pie" },
+  { label: "User Journey", value: "journey" },
+  { label: "Git Graph", value: "gitGraph" },
+  { label: "Mindmap", value: "mindmap" },
+  { label: "Timeline", value: "timeline" },
+  { label: "Quadrant Chart", value: "quadrant" },
+  { label: "Sankey Diagram", value: "sankey" },
+  { label: "XY Chart", value: "xychart" },
+  { label: "Block Diagram", value: "block" },
+  { label: "Packet Diagram", value: "packet" },
+  { label: "Kanban Board", value: "kanban" },
+  { label: "Architecture", value: "architecture" },
+  { label: "C4 Context", value: "c4context" },
+  { label: "C4 Container", value: "c4container" },
+  { label: "C4 Component", value: "c4component" },
+  { label: "C4 Deployment", value: "c4deployment" },
+  { label: "Requirement Diagram", value: "requirement" },
+  { label: "ZenUML", value: "zenuml" },
+];
+
+const mermaidTemplates: Record<string, string> = {
+  flowchart: "flowchart LR\n    A[Start] --> B[Process] --> C[End]",
+  sequence: "sequenceDiagram\n    Alice->>Bob: Hello\n    Bob-->>Alice: Hi",
+  classDiagram: "classDiagram\n    class Animal {\n        +String name\n        +makeSound()\n    }",
+  stateDiagram: "stateDiagram-v2\n    [*] --> Active\n    Active --> [*]",
+  erDiagram: "erDiagram\n    CUSTOMER ||--o{ ORDER : places\n    ORDER ||--|{ LINE-ITEM : contains",
+  gantt: "gantt\n    title Project\n    dateFormat YYYY-MM-DD\n    section Phase 1\n    Task 1: 2024-01-01, 30d",
+  pie: 'pie title Favorite Pets\n    "Dogs" : 386\n    "Cats" : 85\n    "Fish" : 15',
+  journey: "journey\n    title My Working Day\n    section Go to work\n      Make tea: 5: Me\n      Go upstairs: 3: Me",
+  gitGraph: "gitGraph\n    commit\n    branch develop\n    commit\n    checkout main\n    merge develop",
+  mindmap: "mindmap\n  root((Project))\n    Topic A\n      Subtopic 1\n    Topic B",
+  timeline: "timeline\n    title History\n    2023 : Event A\n    2024 : Event B",
+  quadrant: "quadrantChart\n    title Priorities\n    x-axis Low --> High\n    y-axis Low --> High\n    A: [0.3, 0.6]\n    B: [0.7, 0.8]",
+  sankey: "sankey-beta\n\nSource,Target,Value\nA,X,5\nB,X,3",
+  xychart: 'xychart-beta\n    title "Sales"\n    x-axis [Jan, Feb, Mar]\n    y-axis "Revenue" 0 --> 100\n    bar [30, 50, 80]',
+  block: 'block-beta\n    columns 3\n    a["A"] b["B"] c["C"]',
+  packet: 'packet-beta\n    0-15: "Header"\n    16-31: "Payload"',
+  kanban: "kanban\n    Todo\n      Task 1\n    In Progress\n      Task 2\n    Done\n      Task 3",
+  architecture: "architecture-beta\n    service api(server)[API]\n    service db(database)[Database]\n    api:R --> L:db",
+  c4context: 'C4Context\n    title System Context\n    Person(user, "User")\n    System(system, "System")\n    Rel(user, system, "Uses")',
+  c4container: 'C4Container\n    title Container\n    Container(web, "Web App")\n    Container(api, "API")',
+  c4component: 'C4Component\n    title Components\n    Component(comp, "Component")',
+  c4deployment: 'C4Deployment\n    title Deployment\n    Deployment_Node(node, "Server")',
+  requirement: "requirementDiagram\n    requirement req1 {\n        id: 1\n        text: The system shall...\n    }",
+  zenuml: "zenuml\n    Alice->Bob: Hello\n    Bob->Alice: Hi",
+};
+
+export function handleMermaid(diagramType: string) {
+  const template = mermaidTemplates[diagramType] || "flowchart LR\n    A --> B";
+  insertText(`\n[mermaid]\n----\n${template}\n----\n`);
+}
+
 export interface ToolbarItem {
   id: string;
   label: string;
