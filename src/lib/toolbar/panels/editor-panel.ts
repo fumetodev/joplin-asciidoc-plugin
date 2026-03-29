@@ -3,6 +3,7 @@ export interface EditorPanelOptions {
   onToggleBlockShading: (show: boolean) => void;
   onToggleOverlayEditing: (show: boolean) => void;
   onMarginChange: (px: number) => void;
+  onZoomChange: (percent: number) => void;
 }
 
 /** Helper: creates a `.ribbon-section` wrapper with label and child controls. */
@@ -23,7 +24,7 @@ function createRibbonSection(label: string, ...children: HTMLElement[]): HTMLEle
   return section;
 }
 
-export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: number): HTMLElement {
+export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: number, initialZoom?: number): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
 
@@ -129,6 +130,61 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   marginControl.appendChild(marginSlider);
 
   wrapper.appendChild(createRibbonSection("Layout", marginControl));
+
+  // --- Zoom section ---
+  let zoomValue = initialZoom || 100;
+
+  const zoomControl = document.createElement("div");
+  zoomControl.className = "ribbon-zoom-control";
+
+  const zoomHeader = document.createElement("div");
+  zoomHeader.className = "ribbon-zoom-header";
+
+  const zoomLabel = document.createElement("span");
+  zoomLabel.textContent = "Zoom";
+
+  const zoomValueSpan = document.createElement("span");
+  zoomValueSpan.className = "ribbon-zoom-value";
+  zoomValueSpan.textContent = `${zoomValue}%`;
+
+  const zoomReset = document.createElement("button");
+  zoomReset.className = "ribbon-zoom-reset";
+  zoomReset.textContent = "Reset";
+  zoomReset.title = "Reset to 100%";
+  zoomReset.style.display = zoomValue === 100 ? "none" : "";
+  zoomReset.addEventListener("click", () => {
+    zoomValue = 100;
+    zoomSlider.value = "100";
+    zoomValueSpan.textContent = "100%";
+    zoomReset.style.display = "none";
+    options.onZoomChange(100);
+  });
+
+  zoomHeader.appendChild(zoomLabel);
+  zoomHeader.appendChild(zoomReset);
+  zoomHeader.appendChild(zoomValueSpan);
+
+  const zoomSlider = document.createElement("input");
+  zoomSlider.type = "range";
+  zoomSlider.min = "50";
+  zoomSlider.max = "150";
+  zoomSlider.step = "5";
+  zoomSlider.value = String(zoomValue);
+  zoomSlider.className = "ribbon-zoom-slider";
+  zoomSlider.addEventListener("input", () => {
+    const val = parseInt(zoomSlider.value);
+    if (!isNaN(val)) {
+      zoomValue = val;
+      zoomValueSpan.textContent = `${val}%`;
+      zoomReset.style.display = val === 100 ? "none" : "";
+      options.onZoomChange(val);
+    }
+  });
+
+  zoomControl.appendChild(zoomHeader);
+  zoomControl.appendChild(zoomSlider);
+
+  wrapper.appendChild(createRibbonSection("Zoom", zoomControl));
 
   return wrapper;
 }

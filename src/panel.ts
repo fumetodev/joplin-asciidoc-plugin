@@ -38,6 +38,8 @@ const lineNumbersCompartment = new Compartment();
 let showLineNumbers = localStorage.getItem("asciidoc-line-numbers") === "true";
 let specialBlockShading = localStorage.getItem("asciidoc-block-shading") !== "false";
 let overlayEditingEnabled = localStorage.getItem("asciidoc-overlay-editing") === "true";
+let currentZoom = parseInt(localStorage.getItem("asciidoc-editor-zoom") || "100", 10);
+if (currentZoom < 50 || currentZoom > 150) currentZoom = 100;
 // Sync initial state to live-preview module
 setOverlayEditingEnabled(overlayEditingEnabled);
 
@@ -429,6 +431,20 @@ function handleMessage(msg: any) {
 // Initialization
 // =====================================================
 
+function applyZoom(percent: number) {
+  if (!editorView) return;
+  const scroller = editorView.scrollDOM;
+  const scrollRatio = scroller.scrollHeight > 0 ? scroller.scrollTop / scroller.scrollHeight : 0;
+
+  editorView.dom.style.setProperty("--editor-scale", String(percent / 100));
+  requestAnimationFrame(() => {
+    if (!editorView) return;
+    editorView.scrollDOM.scrollTop = scrollRatio * editorView.scrollDOM.scrollHeight;
+    editorView.requestMeasure();
+    refreshLivePreview(editorView);
+  });
+}
+
 function init() {
   const root = document.getElementById("asciidoc-editor-root");
   if (!root) return;
@@ -459,7 +475,12 @@ function init() {
         document.documentElement.style.setProperty("--content-margin", `${px}px`);
         localStorage.setItem("asciidoc-editor-margin", String(px));
       },
-    }, savedMargin);
+      onZoomChange(percent: number) {
+        currentZoom = percent;
+        localStorage.setItem("asciidoc-editor-zoom", String(percent));
+        applyZoom(percent);
+      },
+    }, savedMargin, currentZoom);
   }
 
   // Create editor
@@ -468,6 +489,10 @@ function init() {
     createEditor(editorPane, "");
   }
 
+  // Apply persisted zoom level
+  if (currentZoom !== 100) {
+    applyZoom(currentZoom);
+  }
 
   // Prevent ribbon clicks from stealing editor focus — the ribbon is part of the editor UI
   const ribbonEl = document.getElementById("ribbon-container");

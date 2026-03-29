@@ -93,6 +93,10 @@ interface PreviewHeightCache {
 const LINE_HEIGHT_DATA_ATTR = "data-lp-line-from";
 const MIN_HEIGHT_DELTA_PX = 1;
 const LIST_LINE_PADDING_EM = 0.35;
+const CODE_HEADER_FONT_EM = 0.75;       // matches .cm-lp-codeblock-header fontSize
+const CODE_HEADER_LINE_HEIGHT = 1.4;     // approximate header line-height
+const CODE_HEADER_PADDING_EM = 0.286;    // matches .cm-lp-codeblock-header padding (each side)
+const CODE_BODY_PADDING_EM = 0.857;      // matches .cm-lp-codeblock-pre padding (each side)
 const PREVIEW_INTERACTIVE_SELECTOR = ".cm-lp-section-toggle, .cm-lp-xref, .cm-lp-image, .cm-lp-footnote";
 const FLOATING_PREVIEW_SELECTOR = ".cm-lp-floating-section-preview";
 const SECTION_TOGGLE_CLOSED = "\u25b8";
@@ -1511,6 +1515,14 @@ function estimateParagraphRawLineHeightPx(renderedHeightPx: number, rawHeightPx:
   return wrappedRowCount * rawHeightPx;
 }
 
+function estimateCodeBlockHeightPx(codeLineCount: number, rawBaseHeightPx: number): number {
+  const baseFontPx = rawBaseHeightPx / 1.6;
+  const headerHeight = baseFontPx * CODE_HEADER_FONT_EM * CODE_HEADER_LINE_HEIGHT
+                     + baseFontPx * CODE_HEADER_PADDING_EM * 2;
+  const bodyPadding = baseFontPx * CODE_BODY_PADDING_EM * 2;
+  return headerHeight + (codeLineCount * rawBaseHeightPx) + bodyPadding;
+}
+
 function buildContentBlockPreviewLines(
   doc: any,
   openLine: number,
@@ -2335,8 +2347,9 @@ function toggleFootnotePopup(fnEl: HTMLElement, lineEl: HTMLElement) {
   // Position below the footnote marker, full content width
   const scrollerRect = scroller.getBoundingClientRect();
   const fnRect = fnEl.getBoundingClientRect();
-  const contentMargin = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--content-margin") || "0", 10);
-  const pad = 20 + contentMargin;
+  const sampleLine = scroller.querySelector<HTMLElement>(".cm-line");
+  const basePad = sampleLine ? parseFloat(getComputedStyle(sampleLine).paddingLeft) : 20;
+  const pad = Math.round(basePad);
   popup.style.top = (fnRect.bottom - scrollerRect.top + scroller.scrollTop + 4) + "px";
   popup.style.left = pad + "px";
   popup.style.right = pad + "px";
@@ -2357,8 +2370,9 @@ function positionFloatingPanel(panel: HTMLDivElement, anchorEl: HTMLElement) {
   const scrollerRect = scroller.getBoundingClientRect();
   const anchorRect = anchorEl.getBoundingClientRect();
   // Position below the anchor, spanning the full content width (respecting margins)
-  const contentMargin = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--content-margin") || "0", 10);
-  const pad = 20 + contentMargin; // matches the cm-line padding
+  const sampleLine = scroller.querySelector<HTMLElement>(".cm-line");
+  const basePad = sampleLine ? parseFloat(getComputedStyle(sampleLine).paddingLeft) : 20;
+  const pad = Math.round(basePad);
   panel.style.top = (anchorRect.bottom - scrollerRect.top + scroller.scrollTop + 2) + "px";
   panel.style.left = pad + "px";
   panel.style.right = pad + "px";
@@ -2604,8 +2618,8 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
 
   if (trimmed.startsWith("| ") || trimmed.startsWith("|")) {
     const cells = trimmed.split("|").filter((c) => c !== "");
-    const rendered = cells.map((c) => renderInline(c.trim())).join(`<span style="color:var(--asciidoc-border,#666);margin:0 6px">|</span>`);
-    return `<span class="cm-lp-table-row"><span style="color:var(--asciidoc-border,#666);margin-right:6px">|</span>${rendered}</span>`;
+    const rendered = cells.map((c) => renderInline(c.trim())).join(`<span style="color:var(--asciidoc-border,#666);margin:0 0.429em">|</span>`);
+    return `<span class="cm-lp-table-row"><span style="color:var(--asciidoc-border,#666);margin-right:0.429em">|</span>${rendered}</span>`;
   }
 
   const imgMatch = trimmed.match(/^image::(.+?)\[(.*)?\]$/);
@@ -3407,7 +3421,7 @@ class ImagePreviewWidget extends WidgetType {
       const row = document.createElement("div");
       row.style.display = "flex";
       row.style.alignItems = "center";
-      row.style.gap = "16px";
+      row.style.gap = "1.143em";
       row.style.width = "100%";
 
       // Image column: fixed size within the row, caption fills the rest
@@ -4069,11 +4083,9 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
         if (cursorInBlock) {
           // Calculate padding for height stabilization
           let cachedCodeHeight = heightCache.lineHeights.get(doc.line(blockStart).from);
-          // Fallback: estimate rendered height from code content
-          // Code block widget has: header (~28px) + code lines * lineHeight + padding (~24px)
           if (!cachedCodeHeight) {
             const codeLineCount = Math.max(1, block.closeLine - block.openLine - 1);
-            cachedCodeHeight = 28 + (codeLineCount * rawBaseHeightPx) + 24;
+            cachedCodeHeight = estimateCodeBlockHeightPx(codeLineCount, rawBaseHeightPx);
           }
           let codePaddingTop = 0;
           let codePaddingBottom = 0;
@@ -4371,9 +4383,11 @@ const livePreviewPlugin = ViewPlugin.fromClass(
   class {
     decorations: any;
     heightCache: PreviewHeightCache;
+    lastRawHeight: number;
 
     constructor(view: EditorView) {
       this.heightCache = createPreviewHeightCache();
+      this.lastRawHeight = measureRawLineHeightPx(view);
       this.decorations = buildDecorations(view, this.heightCache);
       schedulePreviewHeightMeasurement(view, this.heightCache);
     }
@@ -4382,6 +4396,12 @@ const livePreviewPlugin = ViewPlugin.fromClass(
       const forceRefresh = update.transactions.some((transaction: any) =>
         transaction.effects.some((effect: any) => effect.is(refreshLivePreviewEffect))
       );
+      // Detect font-size changes (zoom, browser zoom, accessibility) and clear stale height cache
+      const currentRawHeight = measureRawLineHeightPx(update.view);
+      if (Math.abs(currentRawHeight - this.lastRawHeight) > 0.5) {
+        this.heightCache.lineHeights.clear();
+        this.lastRawHeight = currentRawHeight;
+      }
       if (update.docChanged) {
         this.heightCache.lineHeights.clear();
         closeFootnotePopup();
@@ -4464,6 +4484,8 @@ const livePreviewTheme = EditorView.theme({
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     background: "var(--asciidoc-preview-bg, #fafafa)",
     position: "relative",
+    "--editor-base-size": "14px",
+    "--editor-scale": "1",
   },
   ".cm-scroller": {
     padding: "12px 0",
@@ -4473,7 +4495,7 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-line": {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    fontSize: "14px",
+    fontSize: "calc(var(--editor-base-size) * var(--editor-scale))",
     lineHeight: "1.6",
   },
   "&.cm-focused .cm-activeLine": {
@@ -4491,6 +4513,7 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-gutters": {
     fontFamily: "monospace",
+    fontSize: "calc(var(--editor-base-size) * var(--editor-scale))",
     border: "none",
     background: "transparent",
   },
@@ -4518,8 +4541,8 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lp-docheader": {
     display: "flex",
     flexDirection: "column",
-    gap: "6px",
-    padding: "8px 12px",
+    gap: "0.429em",
+    padding: "0.571em 0.857em",
     borderRadius: "6px",
     background: "var(--asciidoc-bg-alt, rgba(128,128,128,0.06))",
     border: "1px solid var(--asciidoc-border, rgba(128,128,128,0.15))",
@@ -4536,7 +4559,7 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lp-docheader-tags": {
     display: "flex",
     flexWrap: "wrap" as any,
-    gap: "4px",
+    gap: "0.286em",
   },
   ".cm-lp-docheader-tag": {
     display: "inline-flex",
@@ -4549,12 +4572,12 @@ const livePreviewTheme = EditorView.theme({
     overflow: "hidden",
   },
   ".cm-lp-docheader-tag-name": {
-    padding: "1px 5px",
+    padding: "0.071em 0.357em",
     color: "var(--asciidoc-placeholder, #888)",
     fontWeight: "500",
   },
   ".cm-lp-docheader-tag-value": {
-    padding: "1px 5px",
+    padding: "0.071em 0.357em",
     borderLeft: "1px solid var(--asciidoc-border, rgba(128,128,128,0.15))",
     color: "var(--asciidoc-fg, #333)",
     fontWeight: "400",
@@ -4834,8 +4857,8 @@ const livePreviewTheme = EditorView.theme({
   // Floating section preview panel (lives outside CM decorations)
   // Styles are in editor.css since the panel is outside .cm-editor
   ".cm-lp-mark": { backgroundColor: "#fff176", color: "#000", padding: "0.1em 0.2em", borderRadius: "2px" },
-  ".cm-lp-kbd": { display: "inline-block", background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "2px 6px", border: "1px solid var(--asciidoc-border, #ccc)", borderRadius: "3px", fontSize: "0.85em", fontFamily: "'JetBrains Mono', Consolas, monospace", boxShadow: "0 1px 0 var(--asciidoc-border, #ccc)" },
-  ".cm-lp-btn": { display: "inline-block", background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "2px 10px", border: "1px solid var(--asciidoc-border, #bbb)", borderRadius: "4px", fontSize: "0.9em", fontWeight: "600", cursor: "default" },
+  ".cm-lp-kbd": { display: "inline-block", background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "0.143em 0.429em", border: "1px solid var(--asciidoc-border, #ccc)", borderRadius: "3px", fontSize: "0.85em", fontFamily: "'JetBrains Mono', Consolas, monospace", boxShadow: "0 1px 0 var(--asciidoc-border, #ccc)" },
+  ".cm-lp-btn": { display: "inline-block", background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "0.143em 0.714em", border: "1px solid var(--asciidoc-border, #bbb)", borderRadius: "4px", fontSize: "0.9em", fontWeight: "600", cursor: "default" },
   ".cm-lp-menu": { fontSize: "0.9em", fontFamily: "inherit" },
   ".cm-lp-menu-sep": { color: "var(--asciidoc-placeholder, #888)", margin: "0 2px" },
   ".cm-lp-footnote": { color: "var(--asciidoc-link, #2156a5)", cursor: "pointer", fontSize: "0.8em" },
@@ -4856,12 +4879,12 @@ const livePreviewTheme = EditorView.theme({
   },
 
   // Admonitions (inline single-line)
-  ".cm-lp-admon": { display: "inline-flex", alignItems: "baseline", gap: "14px", padding: "10px 14px", borderLeft: "4px solid #888", borderRadius: "0 4px 4px 0", background: "rgba(128,128,128,0.06)", width: "calc(100% - 28px)", lineHeight: "1.6", verticalAlign: "middle", boxSizing: "border-box" },
-  ".cm-lp-admon-line": { lineHeight: "normal !important", paddingTop: "4px !important", paddingBottom: "4px !important" },
+  ".cm-lp-admon": { display: "inline-flex", alignItems: "baseline", gap: "1em", padding: "0.714em 1em", borderLeft: "4px solid #888", borderRadius: "0 4px 4px 0", background: "rgba(128,128,128,0.06)", width: "calc(100% - 2em)", lineHeight: "1.6", verticalAlign: "middle", boxSizing: "border-box" },
+  ".cm-lp-admon-line": { lineHeight: "normal !important", paddingTop: "0.286em !important", paddingBottom: "0.286em !important" },
   // Admonition blocks (multi-line with ==== delimiters)
-  ".cm-lp-admon-block": { display: "flex", flexDirection: "column", gap: "4px", padding: "10px 14px", borderLeft: "4px solid #888", borderRadius: "0 4px 4px 0", background: "rgba(128,128,128,0.06)", lineHeight: "1.6", boxSizing: "border-box", margin: "0.3em 0" },
+  ".cm-lp-admon-block": { display: "flex", flexDirection: "column", gap: "0.286em", padding: "0.714em 1em", borderLeft: "4px solid #888", borderRadius: "0 4px 4px 0", background: "rgba(128,128,128,0.06)", lineHeight: "1.6", boxSizing: "border-box", margin: "0.3em 0" },
   ".cm-lp-admon-block-body": { display: "flex", flexDirection: "column", gap: "0.2em", textAlign: "center" },
-  ".cm-lp-admon-label": { fontWeight: "700", fontSize: "0.8em", letterSpacing: "0.5px", flexShrink: "0", minWidth: "70px", display: "inline-block", textAlign: "center", whiteSpace: "nowrap" },
+  ".cm-lp-admon-label": { fontWeight: "700", fontSize: "0.8em", letterSpacing: "0.5px", flexShrink: "0", minWidth: "5em", display: "inline-block", textAlign: "center", whiteSpace: "nowrap" },
   ".cm-lp-admon-text": { flex: "1" },
   ".cm-lp-admon-note": { borderLeftColor: "#5bc0de", background: "rgba(91,192,222,0.08)" },
   ".cm-lp-admon-note .cm-lp-admon-label": { color: "#31708f" },
@@ -5059,7 +5082,7 @@ const livePreviewTheme = EditorView.theme({
     background: "var(--asciidoc-code-bg, #f5f5f5)",
   },
   ".cm-lp-codeblock-header": {
-    padding: "4px 12px",
+    padding: "0.286em 0.857em",
     fontSize: "0.75em",
     fontWeight: "600",
     letterSpacing: "0.5px",
@@ -5070,7 +5093,7 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-lp-codeblock-pre": {
     margin: "0",
-    padding: "12px",
+    padding: "0.857em",
     fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
     fontSize: "0.85em",
     lineHeight: "1.4",
@@ -5170,14 +5193,14 @@ const livePreviewTheme = EditorView.theme({
     background: "var(--asciidoc-code-bg, #f5f5f5)",
     fontWeight: "bold",
     textAlign: "left",
-    padding: "6px 12px",
+    padding: "0.429em 0.857em",
     border: "1px solid var(--asciidoc-border, #ddd)",
   },
   ".cm-lp-table .cm-lp-side-header": {
     borderRight: "2px solid var(--asciidoc-border, #555)",
   },
   ".cm-lp-table td": {
-    padding: "6px 12px",
+    padding: "0.429em 0.857em",
     border: "1px solid var(--asciidoc-border, #ddd)",
   },
   ".cm-lp-table tbody tr:nth-child(even) td": {
@@ -5209,8 +5232,8 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-lp-table-buttons": {
     display: "flex",
-    gap: "4px",
-    padding: "6px 8px",
+    gap: "0.286em",
+    padding: "0.429em 0.571em",
     background: "var(--asciidoc-code-bg, #f5f5f5)",
     borderTop: "1px solid var(--asciidoc-border, #ddd)",
   },
@@ -5371,8 +5394,8 @@ const livePreviewTheme = EditorView.theme({
     boxShadow: "inset 0 0 0 1px var(--lp-special-block-border, transparent)",
     borderRadius: "8px",
     transition: "background 120ms ease, box-shadow 120ms ease",
-    marginLeft: "calc(var(--content-margin, 0px) + 8px)",
-    marginRight: "calc(var(--content-margin, 0px) + 8px)",
+    marginLeft: "calc(var(--content-margin, 0px) + 0.571em)",
+    marginRight: "calc(var(--content-margin, 0px) + 0.571em)",
   },
   ".cm-lp-list-line .cm-live-preview-line": {
     lineHeight: "1.6 !important",

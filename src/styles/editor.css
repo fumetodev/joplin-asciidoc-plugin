@@ -717,8 +717,8 @@ html, body {
 /* Margin applied to individual lines, not .cm-content (avoids pushing scrollbar) */
 /* In live-preview mode, use wider padding for a document-like feel */
 #editor-pane .cm-editor .cm-line {
-	padding-left: calc(20px + var(--content-margin, 0px));
-	padding-right: calc(20px + var(--content-margin, 0px));
+	padding-left: calc(1.429em + var(--content-margin, 0px));
+	padding-right: calc(1.429em + var(--content-margin, 0px));
 }
 
 /* CodeMirror gutters (line numbers) */
@@ -1441,6 +1441,47 @@ html, body {
 }
 
 .ribbon-margin-slider {
+	width: 100%;
+	height: 4px;
+	cursor: pointer;
+	accent-color: var(--asciidoc-link, #2156a5);
+	margin: 0;
+}
+
+.ribbon-zoom-control {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 120px;
+}
+.ribbon-zoom-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 11px;
+	color: var(--asciidoc-fg, #333);
+	gap: 6px;
+}
+.ribbon-zoom-value {
+	color: var(--asciidoc-placeholder, #888);
+	font-variant-numeric: tabular-nums;
+}
+.ribbon-zoom-reset {
+	background: transparent;
+	border: 1px solid var(--asciidoc-border, #ccc);
+	border-radius: 3px;
+	padding: 0 6px;
+	font-size: 10px;
+	color: var(--asciidoc-placeholder, #888);
+	cursor: pointer;
+	line-height: 1.6;
+	font-family: inherit;
+}
+.ribbon-zoom-reset:hover {
+	background: var(--asciidoc-btn-hover, #e8e8e8);
+	color: var(--asciidoc-fg, #333);
+}
+.ribbon-zoom-slider {
 	width: 100%;
 	height: 4px;
 	cursor: pointer;

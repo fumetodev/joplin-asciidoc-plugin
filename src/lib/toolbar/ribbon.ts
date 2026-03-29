@@ -12,7 +12,7 @@ const tabs: { id: TabId; label: string }[] = [
   { id: "editor", label: "Editor" },
 ];
 
-export function buildRibbon(container: HTMLElement, editorOptions?: EditorPanelOptions, initialMargin?: number): void {
+export function buildRibbon(container: HTMLElement, editorOptions?: EditorPanelOptions, initialMargin?: number, initialZoom?: number): void {
   let activeTab: TabId = "text";
   let currentCleanup: (() => void) | null = null;
 
@@ -76,7 +76,8 @@ export function buildRibbon(container: HTMLElement, editorOptions?: EditorPanelO
           onToggleBlockShading: () => {},
           onToggleOverlayEditing: () => {},
           onMarginChange: () => {},
-        }, initialMargin) };
+          onZoomChange: () => {},
+        }, initialMargin, initialZoom) };
         break;
       default:
         return;
