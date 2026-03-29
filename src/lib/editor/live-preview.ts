@@ -5001,6 +5001,12 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lp-mermaid-content svg": {
     maxWidth: "100%",
     height: "auto",
+    overflow: "visible",
+    transform: "scale(var(--editor-scale, 1))",
+    transformOrigin: "center top",
+  },
+  ".cm-lp-mermaid-content foreignObject": {
+    overflow: "visible",
   },
   ".cm-lp-mermaid-placeholder": {
     color: "var(--asciidoc-placeholder, #888)",
