@@ -925,6 +925,12 @@ html, body {
 	text-decoration-color: #fc8181;
 }
 
+/* ── Hard line break indicator ──────────────────────── */
+
+.cm-lp-linebreak {
+	opacity: 0.4;
+}
+
 .spell-context-menu {
 	position: fixed;
 	z-index: 200;

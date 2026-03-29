@@ -1,4 +1,4 @@
-import { wrapSelection, insertText, prefixLine, positionDropdown } from "../toolbar-actions";
+import { wrapSelection, insertText, prefixLine, suffixLine, positionDropdown } from "../toolbar-actions";
 
 const ARROW_SVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`;
 
@@ -25,6 +25,8 @@ function createRibbonSection(label: string, ...children: HTMLElement[]): HTMLEle
 // ---------------------------------------------------------------
 
 interface DropdownState {
+  quotes: boolean;
+  passthrough: boolean;
   menu: boolean;
   footnote: boolean;
   anchor: boolean;
@@ -34,7 +36,7 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
 
-  const state: DropdownState = { menu: false, footnote: false, anchor: false };
+  const state: DropdownState = { quotes: false, passthrough: false, menu: false, footnote: false, anchor: false };
   const wrapEls: Map<keyof DropdownState, HTMLElement> = new Map();
 
   function closeAll() {
@@ -93,6 +95,54 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
   commentBtn.innerHTML = `<span class="rlb-label">Comment</span>`;
   commentBtn.addEventListener("click", () => prefixLine("// "));
   simpleRow.appendChild(commentBtn);
+
+  // Line Break — appends ` +` at end of line
+  const lineBreakBtn = document.createElement("button");
+  lineBreakBtn.className = "ribbon-labeled-btn";
+  lineBreakBtn.title = 'Hard Line Break ( +)';
+  lineBreakBtn.innerHTML = `<span class="rlb-label">Line Break</span>`;
+  lineBreakBtn.addEventListener("click", () => suffixLine(" +"));
+  simpleRow.appendChild(lineBreakBtn);
+
+  // --- Quotes split button ---
+  const quotesWrap = document.createElement("div");
+  quotesWrap.className = "split-btn-wrap";
+  wrapEls.set("quotes", quotesWrap);
+
+  const quotesBtn = document.createElement("button");
+  quotesBtn.className = "ribbon-labeled-btn";
+  quotesBtn.title = 'Smart Quotes ("\u2026")';
+  quotesBtn.innerHTML = `<span class="rlb-label">Quotes</span>`;
+  quotesBtn.addEventListener("click", () => wrapSelection('"`', '`"'));
+
+  const quotesArrow = document.createElement("button");
+  quotesArrow.className = "split-arrow";
+  quotesArrow.innerHTML = ARROW_SVG;
+  quotesArrow.addEventListener("click", (e) => { e.stopPropagation(); toggle("quotes"); });
+
+  quotesWrap.appendChild(quotesBtn);
+  quotesWrap.appendChild(quotesArrow);
+  simpleRow.appendChild(quotesWrap);
+
+  // --- Passthrough split button ---
+  const passWrap = document.createElement("div");
+  passWrap.className = "split-btn-wrap";
+  wrapEls.set("passthrough", passWrap);
+
+  const passBtn = document.createElement("button");
+  passBtn.className = "ribbon-labeled-btn";
+  passBtn.title = "Passthrough (++\u2026++)";
+  passBtn.innerHTML = `<span class="rlb-label">Passthrough</span>`;
+  passBtn.addEventListener("click", () => wrapSelection("++", "++"));
+
+  const passArrow = document.createElement("button");
+  passArrow.className = "split-arrow";
+  passArrow.innerHTML = ARROW_SVG;
+  passArrow.addEventListener("click", (e) => { e.stopPropagation(); toggle("passthrough"); });
+
+  passWrap.appendChild(passBtn);
+  passWrap.appendChild(passArrow);
+  simpleRow.appendChild(passWrap);
 
   wrapper.appendChild(createRibbonSection("Inline", simpleRow));
 
@@ -171,10 +221,55 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
 
   function buildDropdown(which: keyof DropdownState) {
     switch (which) {
+      case "quotes": buildQuotesDropdown(); break;
+      case "passthrough": buildPassthroughDropdown(); break;
       case "menu": buildMenuDropdown(); break;
       case "footnote": buildFootnoteDropdown(); break;
       case "anchor": buildAnchorDropdown(); break;
     }
+  }
+
+  function buildQuotesDropdown() {
+    const dd = document.createElement("div");
+    dd.className = "split-dropdown open";
+    dd.setAttribute("role", "menu");
+
+    const options = [
+      { label: '\u201CDouble Curly\u201D', before: '"`', after: '`"' },
+      { label: '\u2018Single Curly\u2019', before: "'`", after: "`'" },
+    ];
+    for (const opt of options) {
+      const item = document.createElement("button");
+      item.className = "split-dropdown-item";
+      item.textContent = opt.label;
+      item.addEventListener("click", () => { wrapSelection(opt.before, opt.after); closeAll(); });
+      dd.appendChild(item);
+    }
+
+    quotesWrap.appendChild(dd);
+    positionDropdown(dd);
+  }
+
+  function buildPassthroughDropdown() {
+    const dd = document.createElement("div");
+    dd.className = "split-dropdown open";
+    dd.setAttribute("role", "menu");
+
+    const options = [
+      { label: "Unconstrained (++\u2026++)", before: "++", after: "++" },
+      { label: "Raw (+++\u2026+++)", before: "+++", after: "+++" },
+      { label: "Pass Macro (pass:[\u2026])", before: "pass:[", after: "]" },
+    ];
+    for (const opt of options) {
+      const item = document.createElement("button");
+      item.className = "split-dropdown-item";
+      item.textContent = opt.label;
+      item.addEventListener("click", () => { wrapSelection(opt.before, opt.after); closeAll(); });
+      dd.appendChild(item);
+    }
+
+    passWrap.appendChild(dd);
+    positionDropdown(dd);
   }
 
   function buildMenuDropdown() {

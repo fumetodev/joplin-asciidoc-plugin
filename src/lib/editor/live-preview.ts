@@ -2742,6 +2742,10 @@ function renderInline(text: string): string {
   result = result.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, "<strong>$1</strong>");
   result = result.replace(/(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)/g, "<em>$1</em>");
 
+  // Smart quotes (must be before monospace to prevent backtick consumption)
+  result = result.replace(/&quot;`([^`]+)`&quot;/g, '\u201C$1\u201D');
+  result = result.replace(/'`([^`]+)`'/g, '\u2018$1\u2019');
+
   // Monospace
   result = result.replace(/`([^`]+)`/g, '<code class="cm-lp-code">$1</code>');
 
@@ -2833,8 +2837,15 @@ function renderInline(text: string): string {
     return `<sup class="cm-lp-footnote" data-fn-id="${escapeHtml(fnId)}" data-fn-text="${escapeHtml(fnText)}" data-fn-num="${num}">[${num}]</sup>`;
   });
 
-  // Pass-through (triple plus)
+  // Pass-through macros
+  result = result.replace(/pass:\[([^\]]*)\]/g, '$1');
+
+  // Pass-through (triple plus, then double plus)
   result = result.replace(/\+\+\+(.+?)\+\+\+/g, '$1');
+  result = result.replace(/\+\+(?!\+)(.+?)(?<!\+)\+\+/g, '$1');
+
+  // Hard line break: trailing ` +`
+  result = result.replace(/ \+$/, '<span class="cm-lp-linebreak"> +</span>');
 
   // --- AsciiDoc text replacements ---
   result = result.replace(/\(C\)/g, "\u00A9");

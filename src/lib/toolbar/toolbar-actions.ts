@@ -77,6 +77,12 @@ export function prefixLine(text: string) {
   }));
 }
 
+export function suffixLine(text: string) {
+  window.dispatchEvent(new CustomEvent("editor-command", {
+    detail: { type: "suffix", text },
+  }));
+}
+
 export function handleAdmonition(type: string) {
   insertText(`\n${type}: `);
 }

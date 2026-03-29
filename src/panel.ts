@@ -275,6 +275,19 @@ function handleEditorCommand(e: Event) {
       }
     }
     editorView.dispatch({ changes });
+  } else if (type === "suffix") {
+    const firstLine = editorView.state.doc.lineAt(from);
+    const lastLine = editorView.state.doc.lineAt(to);
+    const changes: Array<{ from: number; to: number; insert: string }> = [];
+    for (let ln = firstLine.number; ln <= lastLine.number; ln++) {
+      const lineObj = editorView.state.doc.line(ln);
+      if (lineObj.text.endsWith(text)) {
+        changes.push({ from: lineObj.to - text.length, to: lineObj.to, insert: "" });
+      } else {
+        changes.push({ from: lineObj.to, to: lineObj.to, insert: text });
+      }
+    }
+    editorView.dispatch({ changes });
   } else if (type === "remove-highlight") {
     removeHighlightMarkup();
   }
