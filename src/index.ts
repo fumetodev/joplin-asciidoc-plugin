@@ -870,6 +870,11 @@ async function registerSettings() {
     iconName: "fas fa-file-alt",
   });
 
+  await joplin.settings.registerSection("asciidoc-spellchecker", {
+    label: "Spell Checker",
+    iconName: "fas fa-spell-check",
+  });
+
   await joplin.settings.registerSettings({
     "asciidoc.newNotesAsAsciiDoc": {
       section: "asciidoc",
@@ -886,6 +891,14 @@ async function registerSettings() {
       value: "[]",
       label: "Personal Dictionary",
       description: "JSON array of custom dictionary words (managed by the spell checker).",
+    },
+    "asciidoc.spellcheckPluralSingular": {
+      section: "asciidoc-spellchecker",
+      public: true,
+      type: 3, // Boolean
+      value: true,
+      label: "Adding New Words Adds Their Plural/Singular",
+      description: "When enabled, the spell-checker right-click menu includes options to add a word along with its plural or singular form.",
     },
   });
 }
@@ -1162,6 +1175,16 @@ joplin.plugins.register({
               return { status: "ok" };
             } catch {
               return { status: "error" };
+            }
+          }
+
+          // Get spell-check settings
+          if (msg.type === "getSpellcheckSettings") {
+            try {
+              const pluralSingular = await joplin.settings.value("asciidoc.spellcheckPluralSingular");
+              return { pluralSingular: pluralSingular !== false };
+            } catch {
+              return { pluralSingular: true };
             }
           }
 

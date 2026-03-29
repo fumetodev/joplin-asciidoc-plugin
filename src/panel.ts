@@ -13,9 +13,9 @@ import { asciidocLanguage } from "./lib/editor/asciidoc-language";
 import { asciidocKeymap } from "./lib/editor/keybindings";
 import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled } from "./lib/editor/live-preview";
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
-import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck } from "./lib/editor/spellcheck";
+import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck, setShowPluralSingular } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
-import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary } from "./lib/ipc";
+import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary, getSpellcheckSettings } from "./lib/ipc";
 import { setMermaidTheme } from "./lib/utils/mermaid-render";
 
 declare const webviewApi: {
@@ -582,7 +582,11 @@ function init() {
       handleMessage({ type: "updateNote", value: response.note });
     }
 
-    // Load personal dictionary for spell checker
+    // Load spell-checker settings and personal dictionary
+    getSpellcheckSettings().then((settings) => {
+      setShowPluralSingular(settings.pluralSingular);
+    }).catch((e) => console.error("[panel] Failed to load spellcheck settings:", e));
+
     getPersonalDictionary().then((result) => {
       if (result.words && result.words.length > 0) {
         loadPersonalDictionary(result.words);

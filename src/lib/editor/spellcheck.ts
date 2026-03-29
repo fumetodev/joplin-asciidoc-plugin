@@ -35,8 +35,16 @@ try {
 /** Cache of word → correct (true) or misspelled (false). Cleared on dictionary changes. */
 const wordCache = new Map<string, boolean>();
 
-/** Words the user clicked "Ignore" on this session. */
+/** Words the user clicked "Ignore All" on this session (all occurrences). */
 const sessionIgnored = new Set<string>();
+
+/** Specific positions the user clicked "Ignore" on (single occurrence). */
+const positionIgnored = new Set<string>();
+
+/** Create a position key for a single-instance ignore. */
+function posKey(from: number, to: number): string {
+  return `${from}:${to}`;
+}
 
 /** Current misspelled word ranges — populated by ViewPlugin, queried by context menu. */
 let misspelledRanges: Array<{ from: number; to: number; word: string }> = [];
@@ -52,6 +60,43 @@ let activeMenuCleanup: (() => void) | null = null;
 
 /** StateEffect used to force the ViewPlugin to recompute decorations. */
 const forceSpellcheckEffect = StateEffect.define<null>();
+
+/** Whether to show "Add to Dictionary (+ Plural/Singular)" options. */
+let showPluralSingular = true;
+
+// =====================================================
+// Plural / singular helpers
+// =====================================================
+
+/** Endings that require "es" for pluralization. */
+const ES_ENDINGS = /(?:s|sh|ch|x|z)$/i;
+
+/** Compute the plural form of a word. */
+function pluralize(word: string): string {
+  return ES_ENDINGS.test(word) ? word + "es" : word + "s";
+}
+
+/**
+ * Compute the singular form of a word, or null if the word doesn't look plural.
+ * Only available for words ending in "s".
+ */
+function singularize(word: string): string | null {
+  if (!word.endsWith("s") && !word.endsWith("S")) return null;
+  const lower = word.toLowerCase();
+
+  // Check for "es" ending where the stem ends in s, sh, ch, x, z
+  if (lower.endsWith("es") && lower.length > 2) {
+    const stem = word.slice(0, -2);
+    if (ES_ENDINGS.test(stem)) return stem;
+  }
+
+  // Simple "s" removal
+  if (word.length > 2) {
+    return word.slice(0, -1);
+  }
+
+  return null;
+}
 
 // =====================================================
 // Syntax-tree–based prose detection
@@ -190,8 +235,9 @@ function computeDecorations(view: EditorView): DecorationSet {
           if (!isProseAtFallback(lineText, offsetInLine, word)) continue;
         }
 
-        // Check if ignored
+        // Check if ignored (all occurrences or this specific position)
         if (sessionIgnored.has(word) || sessionIgnored.has(word.toLowerCase())) continue;
+        if (positionIgnored.has(posKey(wordFrom, wordTo))) continue;
 
         // Check spelling (use cache)
         const lowerWord = word.toLowerCase();
@@ -233,6 +279,24 @@ const spellcheckPlugin = ViewPlugin.fromClass(
       const forceRefresh = update.transactions.some((tr) =>
         tr.effects.some((e) => e.is(forceSpellcheckEffect))
       );
+
+      // Remap position-based ignores through document changes so they track
+      // their original word even after the user inserts/deletes text elsewhere.
+      if (update.docChanged && positionIgnored.size > 0) {
+        const remapped = new Set<string>();
+        for (const key of positionIgnored) {
+          const [fromStr, toStr] = key.split(":");
+          const oldFrom = Number(fromStr);
+          const oldTo = Number(toStr);
+          const newFrom = update.changes.mapPos(oldFrom, 1);
+          const newTo = update.changes.mapPos(oldTo, -1);
+          if (newFrom < newTo) {
+            remapped.add(posKey(newFrom, newTo));
+          }
+        }
+        positionIgnored.clear();
+        for (const key of remapped) positionIgnored.add(key);
+      }
 
       if (forceRefresh) {
         // Immediate recompute (triggered by ignore/add-to-dictionary/debounce)
@@ -280,6 +344,22 @@ function dismissContextMenu() {
   }
 }
 
+function addWordsToDictionary(view: EditorView, words: string[]) {
+  for (const w of words) {
+    if (spell) {
+      spell.add(w);
+      spell.add(w.toLowerCase());
+    }
+    wordCache.delete(w.toLowerCase());
+    if (dictionaryChangeCallback) {
+      dictionaryChangeCallback(w);
+    }
+  }
+  dismissContextMenu();
+  view.dispatch({ effects: forceSpellcheckEffect.of(null) });
+  view.focus();
+}
+
 function showContextMenu(
   view: EditorView,
   event: MouseEvent,
@@ -323,22 +403,35 @@ function showContextMenu(
   sep.className = "spell-context-menu-separator";
   menu.appendChild(sep);
 
-  // Ignore
+  // Ignore (single instance at this position)
   const ignoreItem = document.createElement("div");
   ignoreItem.className = "spell-context-menu-item";
   ignoreItem.textContent = "Ignore";
   ignoreItem.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    sessionIgnored.add(entry.word);
-    sessionIgnored.add(entry.word.toLowerCase());
-    wordCache.delete(entry.word.toLowerCase());
+    positionIgnored.add(posKey(entry.from, entry.to));
     dismissContextMenu();
-    // Force re-decoration
     view.dispatch({ effects: forceSpellcheckEffect.of(null) });
     view.focus();
   });
   menu.appendChild(ignoreItem);
+
+  // Ignore All (every occurrence of this word for the session)
+  const ignoreAllItem = document.createElement("div");
+  ignoreAllItem.className = "spell-context-menu-item";
+  ignoreAllItem.textContent = "Ignore All";
+  ignoreAllItem.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sessionIgnored.add(entry.word);
+    sessionIgnored.add(entry.word.toLowerCase());
+    wordCache.delete(entry.word.toLowerCase());
+    dismissContextMenu();
+    view.dispatch({ effects: forceSpellcheckEffect.of(null) });
+    view.focus();
+  });
+  menu.appendChild(ignoreAllItem);
 
   // Add to Dictionary
   const addItem = document.createElement("div");
@@ -347,21 +440,45 @@ function showContextMenu(
   addItem.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (spell) {
-      spell.add(entry.word);
-      spell.add(entry.word.toLowerCase());
-    }
-    wordCache.delete(entry.word.toLowerCase());
-    dismissContextMenu();
-    // Notify panel.ts to persist via IPC
-    if (dictionaryChangeCallback) {
-      dictionaryChangeCallback(entry.word);
-    }
-    // Force re-decoration
-    view.dispatch({ effects: forceSpellcheckEffect.of(null) });
-    view.focus();
+    addWordsToDictionary(view, [entry.word]);
   });
   menu.appendChild(addItem);
+
+  // Add to Dictionary (+ Plural) / (+ Singular)
+  if (showPluralSingular) {
+    const plural = pluralize(entry.word);
+    const pluralItem = document.createElement("div");
+    pluralItem.className = "spell-context-menu-item";
+    pluralItem.innerHTML = "";
+    pluralItem.appendChild(document.createTextNode("Add to Dictionary (+ "));
+    const boldPlural = document.createElement("strong");
+    boldPlural.textContent = plural;
+    pluralItem.appendChild(boldPlural);
+    pluralItem.appendChild(document.createTextNode(")"));
+    pluralItem.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      addWordsToDictionary(view, [entry.word, plural]);
+    });
+    menu.appendChild(pluralItem);
+
+    const singular = singularize(entry.word);
+    if (singular) {
+      const singularItem = document.createElement("div");
+      singularItem.className = "spell-context-menu-item";
+      singularItem.appendChild(document.createTextNode("Add to Dictionary (+ "));
+      const boldSingular = document.createElement("strong");
+      boldSingular.textContent = singular;
+      singularItem.appendChild(boldSingular);
+      singularItem.appendChild(document.createTextNode(")"));
+      singularItem.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        addWordsToDictionary(view, [entry.word, singular]);
+      });
+      menu.appendChild(singularItem);
+    }
+  }
 
   // Position the menu near the cursor, adjusting for viewport edges
   let x = event.clientX;
@@ -464,6 +581,11 @@ export function refreshSpellcheck(view: EditorView): void {
 /** Set the callback for when a word is added to the personal dictionary. */
 export function onDictionaryChange(cb: (word: string) => void): void {
   dictionaryChangeCallback = cb;
+}
+
+/** Set whether to show plural/singular options in the context menu. */
+export function setShowPluralSingular(enabled: boolean): void {
+  showPluralSingular = enabled;
 }
 
 /** Returns whether nspell has been initialized successfully. */
