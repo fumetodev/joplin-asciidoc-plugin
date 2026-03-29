@@ -1445,6 +1445,7 @@ html, body {
 	flex-direction: column;
 	gap: 4px;
 	min-width: 120px;
+	align-items: center;
 }
 
 .editor-toggles-appearance {

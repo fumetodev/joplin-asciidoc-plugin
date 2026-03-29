@@ -4002,26 +4002,11 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       const fromPos = doc.line(blockStart).from;
       const toPos = doc.line(blockEnd).to;
 
-      // When cursor is inside a block, try to match the rendered height to prevent vertical shift
-      // Skip code blocks — they handle their own padding in their cursorInBlock path
-      if (cursorInBlock && block.type !== "code") {
-        const cachedBlockHeight = heightCache.lineHeights.get(doc.line(blockStart).from);
-        if (cachedBlockHeight) {
-          const rawLineCount = blockEnd - blockStart + 1;
-          const rawTotalHeight = rawLineCount * rawBaseHeightPx;
-          const heightDelta = Math.max(0, cachedBlockHeight - rawTotalHeight);
-          if (heightDelta > 4) {
-            const paddingTop = Math.floor(heightDelta / 2);
-            const paddingBottom = Math.ceil(heightDelta / 2);
-            const firstLine = doc.line(blockStart);
-            builder.add(firstLine.from, firstLine.from, Decoration.line({
-              attributes: {
-                style: `padding-top:${paddingTop}px;padding-bottom:${paddingBottom}px;box-sizing:border-box`,
-              },
-            }));
-          }
-        }
-      }
+      // Block-level height stabilization is intentionally disabled for content
+      // blocks (sidebar, example, quote, etc.). Their raw lines naturally take
+      // up sufficient height, and adding padding to match the rendered widget
+      // creates excessive spacing and scroll drift. Code blocks handle their
+      // own padding separately in their cursorInBlock rendering path.
 
       if (block.type === "docheader") {
         if (!cursorInBlock) {
@@ -4326,17 +4311,20 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     }
 
     if (editorHasFocus && rawLines.has(i)) {
-      const cachedHeight = heightCache.lineHeights.get(line.from);
-      const estimatedRawHeight = cachedHeight != null && isParagraph
-        ? estimateParagraphRawLineHeightPx(cachedHeight, rawBaseHeightPx)
-        : rawBaseHeightPx;
-      const renderedHeight = cachedHeight
-        ?? (isList ? estimateListLineHeightPx(rawBaseHeightPx) : null)
-        ?? (headingMatch ? estimateHeadingLineHeightPx(rawBaseHeightPx, headingMatch[1].length) : null);
-      if (renderedHeight) {
-        const decoration = stabilizedLineDecoration(renderedHeight, estimatedRawHeight);
-        if (decoration) {
-          builder.add(line.from, line.from, decoration);
+      // Only apply height stabilization for headings — their rendered preview
+      // (large font + margins) is genuinely taller than the raw monospace text.
+      // List items and paragraphs are skipped: their raw text often wraps to
+      // MORE lines than the rendered preview, so adding padding just inflates
+      // the height and causes scroll drift.
+      if (headingMatch) {
+        const cachedHeight = heightCache.lineHeights.get(line.from);
+        const renderedHeight = cachedHeight
+          ?? estimateHeadingLineHeightPx(rawBaseHeightPx, headingMatch[1].length);
+        if (renderedHeight) {
+          const decoration = stabilizedLineDecoration(renderedHeight, rawBaseHeightPx);
+          if (decoration) {
+            builder.add(line.from, line.from, decoration);
+          }
         }
       }
       pendingRole = null;
@@ -4409,34 +4397,66 @@ const livePreviewPlugin = ViewPlugin.fromClass(
       if (update.selectionSet) {
         closeFootnotePopup();
       }
-      // Capture scroll before rebuilding decorations
-      const scrollBefore = update.view.scrollDOM.scrollTop;
       // Don't lock scroll when search panel is open — search needs to scroll to matches
       const searchOpen = update.view.dom.querySelector(".cm-panel.cm-search") != null;
       const needsScrollLock = (update.selectionSet || update.focusChanged) && !update.docChanged && !searchOpen;
+
+      // Determine cursor jump distance to pick the right stabilization strategy
+      const oldLine = update.startState.doc.lineAt(update.startState.selection.main.head).number;
+      const newLine = update.state.doc.lineAt(update.state.selection.main.head).number;
+      const lineDistance = Math.abs(newLine - oldLine);
+
+      // Capture scroll state BEFORE rebuilding decorations
+      const scrollBefore = update.view.scrollDOM.scrollTop;
+      let anchorScreenY: number | null = null;
+      let anchorCursorPos = -1;
+      if (needsScrollLock && lineDistance > 4) {
+        // For distant jumps: capture cursor line's screen position for anchor-based restoration
+        anchorCursorPos = update.state.selection.main.head;
+        const el = getLineElementForPosition(update.view, anchorCursorPos);
+        if (el) {
+          anchorScreenY = measureElementTopRelativeToScroller(update.view, el);
+        }
+      }
 
       if (update.docChanged || update.selectionSet || update.viewportChanged || update.focusChanged || forceRefresh) {
         this.decorations = buildDecorations(update.view, this.heightCache);
         schedulePreviewHeightMeasurement(update.view, this.heightCache);
       }
 
-      // Prevent vertical shift when cursor moves in/out of blocks.
-      // Lock scroll across multiple frames to catch the reflow.
       if (needsScrollLock) {
         const scroller = update.view.scrollDOM;
-        const restore = () => {
-          if (Math.abs(scroller.scrollTop - scrollBefore) > 2) {
-            scroller.scrollTop = scrollBefore;
-          }
-        };
-        // Immediate (catches sync shifts)
-        restore();
-        // After first reflow
-        requestAnimationFrame(() => {
+
+        if (lineDistance > 4 && anchorScreenY != null && anchorCursorPos >= 0) {
+          // Distant jump (e.g., list item → heading far away):
+          // Anchor-based restoration — keeps the clicked line at its pre-click
+          // screen position despite large height changes between old/new cursor.
+          const targetScreenY = anchorScreenY;
+          const cursorPos = anchorCursorPos;
+          requestAnimationFrame(() => {
+            const el = getLineElementForPosition(update.view, cursorPos);
+            if (!el) return;
+            const currentScreenY = measureElementTopRelativeToScroller(update.view, el);
+            const delta = currentScreenY - targetScreenY;
+            if (Math.abs(delta) > 2) {
+              scroller.scrollTop += delta;
+            }
+          });
+        } else {
+          // Nearby click (adjacent lines, same area):
+          // Absolute scrollTop restoration — prevents CM6's scroll-into-view from
+          // causing cumulative drift when toggling between raw/preview on nearby lines.
+          const restore = () => {
+            if (Math.abs(scroller.scrollTop - scrollBefore) > 2) {
+              scroller.scrollTop = scrollBefore;
+            }
+          };
           restore();
-          // After second reflow (some shifts take 2 frames)
-          requestAnimationFrame(restore);
-        });
+          requestAnimationFrame(() => {
+            restore();
+            requestAnimationFrame(restore);
+          });
+        }
       }
 
       // Auto-open modal when cursor enters a block via editing (backspace, etc.)
