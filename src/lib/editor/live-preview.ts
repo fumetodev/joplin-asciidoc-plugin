@@ -4317,6 +4317,9 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       // MORE lines than the rendered preview, so adding padding just inflates
       // the height and causes scroll drift.
       if (headingMatch) {
+        // Use the cached measured height if available (accurate), falling back
+        // to the mathematical estimate. The cache is now remapped through doc
+        // changes (not cleared), so it stays consistent across typing.
         const cachedHeight = heightCache.lineHeights.get(line.from);
         const renderedHeight = cachedHeight
           ?? estimateHeadingLineHeightPx(rawBaseHeightPx, headingMatch[1].length);
@@ -4391,7 +4394,19 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         this.lastRawHeight = currentRawHeight;
       }
       if (update.docChanged) {
-        this.heightCache.lineHeights.clear();
+        // Remap height cache keys through document changes instead of clearing.
+        // This preserves accurate measured heights for lines that didn't change
+        // (e.g., heading widget heights stay valid while editing nearby lines),
+        // preventing padding flicker when the user starts typing.
+        const remapped = new Map<number, number>();
+        for (const [oldFrom, height] of this.heightCache.lineHeights) {
+          const newFrom = update.changes.mapPos(oldFrom, 1);
+          // Only keep entries where the position is still valid
+          if (newFrom >= 0 && newFrom <= update.state.doc.length) {
+            remapped.set(newFrom, height);
+          }
+        }
+        this.heightCache.lineHeights = remapped;
         closeFootnotePopup();
       }
       if (update.selectionSet) {

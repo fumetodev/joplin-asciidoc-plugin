@@ -16,12 +16,7 @@ function ensureInitialized() {
   if (initialized) return;
   initialized = true;
   mermaid.registerLayoutLoaders(elkLayouts);
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: currentTheme,
-    layout: "elk",
-    securityLevel: "strict",
-  });
+  initMermaidConfig();
 }
 
 // ── Public API ──
@@ -77,13 +72,43 @@ export function setMermaidTheme(isDark: boolean): void {
   currentGeneration++;
   svgCache.clear();
   if (initialized) {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: currentTheme,
-      layout: "elk",
-      securityLevel: "strict",
-    });
+    initMermaidConfig();
   }
+}
+
+function initMermaidConfig() {
+  const config: Record<string, any> = {
+    startOnLoad: false,
+    theme: currentTheme,
+    layout: "elk",
+    securityLevel: "strict",
+  };
+  // Override theme variables for dark mode so diagrams match the editor's
+  // dark background instead of Mermaid's default dark palette
+  if (currentTheme === "dark") {
+    config.themeVariables = {
+      background: "#1e1e1e",
+      primaryColor: "#3a3a3a",
+      primaryTextColor: "#d4d4d4",
+      primaryBorderColor: "#555",
+      secondaryColor: "#2d2d2d",
+      secondaryTextColor: "#d4d4d4",
+      secondaryBorderColor: "#555",
+      tertiaryColor: "#333",
+      tertiaryTextColor: "#d4d4d4",
+      tertiaryBorderColor: "#555",
+      lineColor: "#888",
+      textColor: "#d4d4d4",
+      mainBkg: "#2d2d2d",
+      nodeBorder: "#555",
+      clusterBkg: "#252525",
+      clusterBorder: "#555",
+      titleColor: "#d4d4d4",
+      edgeLabelBackground: "#2d2d2d",
+      nodeTextColor: "#d4d4d4",
+    };
+  }
+  mermaid.initialize(config);
 }
 
 export function getMermaidModule() {

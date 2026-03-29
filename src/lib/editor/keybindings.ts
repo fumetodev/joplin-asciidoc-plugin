@@ -153,6 +153,10 @@ export const asciidocKeymap: KeyBinding[] = [
     run: (view) => wrapSelection(view, "_", "_"),
   },
   {
+    key: "Mod-u",
+    run: (view) => wrapSelection(view, "[.underline]#", "#"),
+  },
+  {
     key: "Mod-`",
     run: (view) => wrapSelection(view, "`", "`"),
   },

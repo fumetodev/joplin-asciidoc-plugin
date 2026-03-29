@@ -437,6 +437,8 @@ function handleMessage(msg: any) {
       root.classList.add(msg.value === "dark" ? "dark-theme" : "light-theme");
     }
     setMermaidTheme(msg.value === "dark");
+    // Force live-preview to rebuild so mermaid diagrams re-render with new theme
+    if (editorView) refreshLivePreview(editorView);
   }
 }
 
