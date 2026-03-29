@@ -13,8 +13,9 @@ import { asciidocLanguage } from "./lib/editor/asciidoc-language";
 import { asciidocKeymap } from "./lib/editor/keybindings";
 import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled } from "./lib/editor/live-preview";
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
+import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
-import { saveNoteContent, requestResources } from "./lib/ipc";
+import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary } from "./lib/ipc";
 import { setMermaidTheme } from "./lib/utils/mermaid-render";
 
 declare const webviewApi: {
@@ -35,9 +36,11 @@ let suppressNextDocChange = false; // Prevent save-back loop when loading new no
 const SAVE_DEBOUNCE_MS = 2000;
 
 const lineNumbersCompartment = new Compartment();
+const spellcheckCompartment = new Compartment();
 let showLineNumbers = localStorage.getItem("asciidoc-line-numbers") === "true";
 let specialBlockShading = localStorage.getItem("asciidoc-block-shading") !== "false";
 let overlayEditingEnabled = localStorage.getItem("asciidoc-overlay-editing") === "true";
+let spellcheckEnabled = localStorage.getItem("asciidoc-spellcheck") !== "false";
 let currentZoom = parseInt(localStorage.getItem("asciidoc-editor-zoom") || "100", 10);
 if (currentZoom < 50 || currentZoom > 150) currentZoom = 100;
 // Sync initial state to live-preview module
@@ -305,6 +308,15 @@ function updateBlockShading() {
   );
 }
 
+function updateSpellcheck() {
+  if (!editorView) return;
+  editorView.dispatch({
+    effects: spellcheckCompartment.reconfigure(
+      spellcheckEnabled ? spellcheckExtension() : []
+    ),
+  });
+}
+
 // =====================================================
 // Create CM6 editor
 // =====================================================
@@ -326,6 +338,7 @@ function createEditor(container: HTMLElement, content: string) {
       highlightSelectionMatches(),
       placeholder("Write AsciiDoc here..."),
       asciidocLanguage(),
+      spellcheckCompartment.of(spellcheckEnabled ? spellcheckExtension() : []),
       wikiLinkCompletion(),
       keymap.of([
         ...asciidocKeymap,
@@ -471,6 +484,10 @@ function init() {
         overlayEditingEnabled = enabled;
         setOverlayEditingEnabled(enabled);
       },
+      onToggleSpellCheck(enabled: boolean) {
+        spellcheckEnabled = enabled;
+        updateSpellcheck();
+      },
       onMarginChange(px: number) {
         document.documentElement.style.setProperty("--content-margin", `${px}px`);
         localStorage.setItem("asciidoc-editor-margin", String(px));
@@ -482,6 +499,13 @@ function init() {
       },
     }, savedMargin, currentZoom);
   }
+
+  // Wire spell-check dictionary persistence
+  onDictionaryChange((word: string) => {
+    addWordToPersonalDictionary(word).catch((e) =>
+      console.error("[panel] Failed to persist dictionary word:", e)
+    );
+  });
 
   // Create editor
   const editorPane = document.getElementById("editor-pane");
@@ -557,6 +581,16 @@ function init() {
     if (response.note) {
       handleMessage({ type: "updateNote", value: response.note });
     }
+
+    // Load personal dictionary for spell checker
+    getPersonalDictionary().then((result) => {
+      if (result.words && result.words.length > 0) {
+        loadPersonalDictionary(result.words);
+        if (spellcheckEnabled && editorView) {
+          refreshSpellcheck(editorView);
+        }
+      }
+    }).catch((e) => console.error("[panel] Failed to load personal dictionary:", e));
   }).catch((e: any) => {
     console.error("[panel] Ready handshake failed:", e);
   });

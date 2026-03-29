@@ -44,6 +44,7 @@ module.exports = (env, argv) => {
       module: {
         rules: [
           { test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ },
+          { test: /\.(aff|dic)$/, type: 'asset/source' },
         ],
       },
       plugins: [

@@ -57,3 +57,11 @@ export async function markAsTemplate(): Promise<void> {
 export async function unmarkTemplate(): Promise<void> {
   await webviewApi.postMessage({ type: "unmarkTemplate" });
 }
+
+export async function getPersonalDictionary(): Promise<{ words: string[] }> {
+  return webviewApi.postMessage({ type: "getPersonalDictionary" });
+}
+
+export async function addWordToPersonalDictionary(word: string): Promise<void> {
+  return webviewApi.postMessage({ type: "addWordToPersonalDictionary", word });
+}

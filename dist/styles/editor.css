@@ -912,6 +912,60 @@ html, body {
 	color: rgba(255, 255, 255, 0.7);
 }
 
+/* ── Spell-check ─────────────────────────────────────── */
+
+.cm-spell-error {
+	text-decoration: underline wavy;
+	text-decoration-color: #e53e3e;
+	text-decoration-skip-ink: none;
+	text-underline-offset: 3px;
+}
+
+.dark-theme .cm-spell-error {
+	text-decoration-color: #fc8181;
+}
+
+.spell-context-menu {
+	position: fixed;
+	z-index: 200;
+	min-width: 150px;
+	max-width: 260px;
+	background: var(--asciidoc-bg, #fff);
+	border: 1px solid var(--asciidoc-border, #ddd);
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	padding: 4px 0;
+	font-size: 13px;
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.dark-theme .spell-context-menu {
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.spell-context-menu-item {
+	padding: 5px 14px;
+	cursor: pointer;
+	color: var(--asciidoc-fg, #333);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.spell-context-menu-item:hover {
+	background: var(--asciidoc-btn-hover, rgba(0,0,0,0.06));
+}
+
+.spell-context-menu-item.suggestion {
+	font-weight: 500;
+}
+
+.spell-context-menu-separator {
+	height: 1px;
+	margin: 4px 8px;
+	background: var(--asciidoc-border, #ddd);
+}
+
 /* Floating section preview panel (for live preview xref links) */
 .cm-lp-floating-section-preview {
 	display: none;

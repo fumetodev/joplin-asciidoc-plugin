@@ -879,6 +879,14 @@ async function registerSettings() {
       label: "Create new notes as AsciiDoc",
       description: "When enabled, new notes will automatically be created as AsciiDoc notes with the Live Preview editor.",
     },
+    "asciidoc.personalDictionary": {
+      section: "asciidoc",
+      public: false,
+      type: 2, // String
+      value: "[]",
+      label: "Personal Dictionary",
+      description: "JSON array of custom dictionary words (managed by the spell checker).",
+    },
   });
 }
 
@@ -1153,6 +1161,34 @@ joplin.plugins.register({
               await joplin.data.delete(["tags", templateTagId, "notes", currentNoteId]);
               return { status: "ok" };
             } catch {
+              return { status: "error" };
+            }
+          }
+
+          // Get personal dictionary
+          if (msg.type === "getPersonalDictionary") {
+            try {
+              const raw = await joplin.settings.value("asciidoc.personalDictionary");
+              const words = JSON.parse(raw || "[]");
+              return { words: Array.isArray(words) ? words : [] };
+            } catch {
+              return { words: [] };
+            }
+          }
+
+          // Add word to personal dictionary
+          if (msg.type === "addWordToPersonalDictionary") {
+            try {
+              const raw = await joplin.settings.value("asciidoc.personalDictionary");
+              const words: string[] = JSON.parse(raw || "[]");
+              if (!words.includes(msg.word)) {
+                words.push(msg.word);
+                words.sort();
+                await joplin.settings.setValue("asciidoc.personalDictionary", JSON.stringify(words));
+              }
+              return { status: "ok" };
+            } catch (e) {
+              console.error("[AsciiDoc] Failed to save dictionary word:", e);
               return { status: "error" };
             }
           }
