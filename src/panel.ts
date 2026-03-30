@@ -362,8 +362,29 @@ function createEditor(container: HTMLElement, content: string) {
       // High-priority Mod-f/Mod-h to ensure CM6 search opens even if host app tries to intercept
       Prec.highest(keymap.of([
         { key: "Mod-f", run: openSearchPanel, scope: "editor search-panel" },
+        { key: "Mod-Shift-f", run: openSearchPanel, scope: "editor search-panel" },
         { key: "Mod-h", run: openSearchPanel, scope: "editor search-panel" },
         { key: "Escape", run: closeSearchPanel },
+        // Emacs-style line navigation
+        { key: "Mod-Shift-a", run: (view) => {
+          const line = view.state.doc.lineAt(view.state.selection.main.head);
+          view.dispatch({ selection: { anchor: line.from } });
+          return true;
+        }},
+        { key: "Mod-Shift-e", run: (view) => {
+          const line = view.state.doc.lineAt(view.state.selection.main.head);
+          view.dispatch({ selection: { anchor: line.to } });
+          return true;
+        }},
+        // Kill to end of line
+        { key: "Mod-Shift-k", run: (view) => {
+          const head = view.state.selection.main.head;
+          const line = view.state.doc.lineAt(head);
+          if (head < line.to) {
+            view.dispatch({ changes: { from: head, to: line.to } });
+          }
+          return true;
+        }},
       ])),
       livePreview(), // Always on
       // Auto-pair quotes/brackets around selections
