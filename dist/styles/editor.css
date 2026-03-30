@@ -18,6 +18,20 @@ html, body {
 	color: var(--asciidoc-fg, #333333);
 }
 
+/* Fullscreen / Focus mode — extra margins for distraction-free writing */
+#asciidoc-editor-root.fullscreen-mode #editor-pane .cm-editor .cm-line {
+	padding-left: calc(1.429em + var(--content-margin, 0px) + var(--fullscreen-margin, 0px));
+	padding-right: calc(1.429em + var(--content-margin, 0px) + var(--fullscreen-margin, 0px));
+}
+
+#asciidoc-editor-root.fullscreen-mode .ribbon {
+	display: none;
+}
+
+#asciidoc-editor-root.fullscreen-mode #ribbon-container {
+	display: none;
+}
+
 /* Ribbon */
 .ribbon {
 	flex-shrink: 0;

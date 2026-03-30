@@ -220,6 +220,35 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
   wrapper.appendChild(createRibbonSection("Macros", macroRow));
 
   // ---------------------------------------------------------------
+  // Bibliography section
+  // ---------------------------------------------------------------
+
+  const biblioRow = document.createElement("div");
+  biblioRow.className = "ribbon-section-controls";
+  biblioRow.style.display = "flex";
+  biblioRow.style.gap = "4px";
+
+  const addBiblioBtn = document.createElement("button");
+  addBiblioBtn.className = "ribbon-labeled-btn";
+  addBiblioBtn.title = "Insert bibliography section or open existing one";
+  addBiblioBtn.innerHTML = `<span class="rlb-label">Bibliography</span>`;
+  addBiblioBtn.addEventListener("click", () => {
+    window.dispatchEvent(new CustomEvent("editor-command", { detail: { command: "insert-bibliography" } }));
+  });
+  biblioRow.appendChild(addBiblioBtn);
+
+  const citeBtn = document.createElement("button");
+  citeBtn.className = "ribbon-labeled-btn";
+  citeBtn.title = "Insert citation reference (<<ref>>)";
+  citeBtn.innerHTML = `<span class="rlb-label">Cite</span>`;
+  citeBtn.addEventListener("click", () => {
+    insertText("<<>>", 2);
+  });
+  biblioRow.appendChild(citeBtn);
+
+  wrapper.appendChild(createRibbonSection("References", biblioRow));
+
+  // ---------------------------------------------------------------
   // Dropdown builders
   // ---------------------------------------------------------------
 

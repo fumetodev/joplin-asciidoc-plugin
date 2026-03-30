@@ -207,8 +207,41 @@ function removeHighlightMarkup() {
 // =====================================================
 
 function handleEditorCommand(e: Event) {
-  const { type, before, after, text } = (e as CustomEvent).detail;
+  const detail = (e as CustomEvent).detail;
   if (!editorView) return;
+
+  // Bibliography insertion command
+  if (detail.command === "insert-bibliography") {
+    const doc = editorView.state.doc;
+    const fullText = doc.toString();
+    // Check if a bibliography section already exists
+    if (/^\[bibliography\]$/m.test(fullText)) {
+      // Scroll to existing bibliography section
+      for (let ln = 1; ln <= doc.lines; ln++) {
+        if (doc.line(ln).text.trim() === "[bibliography]") {
+          const pos = doc.line(ln).from;
+          editorView.dispatch({
+            selection: { anchor: pos },
+            scrollIntoView: true,
+          });
+          editorView.focus();
+          return;
+        }
+      }
+    } else {
+      // Insert new bibliography skeleton at end of document
+      const skeleton = "\n\n[bibliography]\n== References\n\n* [[[ref1]]] Author. _Title_. Publisher. Year.";
+      const end = doc.length;
+      editorView.dispatch({
+        changes: { from: end, insert: skeleton },
+        selection: { anchor: end + skeleton.length },
+      });
+      editorView.focus();
+    }
+    return;
+  }
+
+  const { type, before, after, text } = detail;
   const { from, to } = editorView.state.selection.main;
 
   if (type === "wrap") {
@@ -328,6 +361,33 @@ function updateSpellcheck() {
     effects: spellcheckCompartment.reconfigure(
       spellcheckEnabled ? spellcheckExtension() : []
     ),
+  });
+}
+
+// =====================================================
+// Fullscreen mode
+// =====================================================
+
+let isFullscreen = false; // never persisted — always starts off
+const FULLSCREEN_EXTRA_MARGIN = 200;
+
+function setFullscreen(enabled: boolean) {
+  isFullscreen = enabled;
+  const root = document.getElementById("asciidoc-editor-root");
+  if (!root) return;
+  if (enabled) {
+    root.classList.add("fullscreen-mode");
+    document.documentElement.style.setProperty("--fullscreen-margin", `${FULLSCREEN_EXTRA_MARGIN}px`);
+  } else {
+    root.classList.remove("fullscreen-mode");
+    document.documentElement.style.setProperty("--fullscreen-margin", "0px");
+  }
+  // Sync the editor panel checkbox if it's currently visible
+  root.querySelectorAll<HTMLInputElement>(".ribbon-panel .editor-toggle-label input[type=checkbox]").forEach(checkbox => {
+    const label = checkbox.nextElementSibling?.textContent;
+    if (label === "Fullscreen Mode" && checkbox.checked !== enabled) {
+      checkbox.checked = enabled;
+    }
   });
 }
 
@@ -733,6 +793,9 @@ function init() {
         spellcheckEnabled = enabled;
         updateSpellcheck();
       },
+      onToggleFullscreen(enabled: boolean) {
+        setFullscreen(enabled);
+      },
       onMarginChange(px: number) {
         document.documentElement.style.setProperty("--content-margin", `${px}px`);
         localStorage.setItem("asciidoc-editor-margin", String(px));
@@ -785,6 +848,16 @@ function init() {
       openSearchPanel(editorView);
     }
   }, true);
+
+  // Escape key exits fullscreen mode (only when nothing else consumed the Escape)
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !isFullscreen || e.defaultPrevented) return;
+    // Don't exit fullscreen if a block editor modal is open (it has its own Escape handler)
+    const hasModal = editorView?.dom.querySelector(".cm-lp-block-editor-overlay") != null;
+    if (!hasModal) {
+      setFullscreen(false);
+    }
+  });
 
   // Open CM6 search panel from toolbar button
   window.addEventListener("open-search", () => {

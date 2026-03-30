@@ -3,6 +3,7 @@ export interface EditorPanelOptions {
   onToggleBlockShading: (show: boolean) => void;
   onToggleOverlayEditing: (show: boolean) => void;
   onToggleSpellCheck: (enabled: boolean) => void;
+  onToggleFullscreen: (enabled: boolean) => void;
   onMarginChange: (px: number) => void;
   onZoomChange: (percent: number) => void;
 }
@@ -108,6 +109,26 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   appearanceToggles.appendChild(overlayLabel);
 
   wrapper.appendChild(createRibbonSection("Appearance", appearanceToggles));
+
+  // --- Panel section ---
+  const panelToggles = document.createElement("div");
+  panelToggles.className = "editor-toggles";
+
+  const fullscreenLabel = document.createElement("label");
+  fullscreenLabel.className = "editor-toggle-label";
+  const fullscreenCb = document.createElement("input");
+  fullscreenCb.type = "checkbox";
+  fullscreenCb.checked = false; // never persisted — always starts off
+  fullscreenCb.addEventListener("input", () => {
+    options.onToggleFullscreen(fullscreenCb.checked);
+  });
+  const fullscreenSpan = document.createElement("span");
+  fullscreenSpan.textContent = "Fullscreen Mode";
+  fullscreenLabel.appendChild(fullscreenCb);
+  fullscreenLabel.appendChild(fullscreenSpan);
+  panelToggles.appendChild(fullscreenLabel);
+
+  wrapper.appendChild(createRibbonSection("Panel", panelToggles));
 
   // --- Layout section ---
   let marginValue = initialMargin || 0;

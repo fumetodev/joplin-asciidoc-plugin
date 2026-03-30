@@ -4,6 +4,7 @@ import { normalizeImageTarget } from "../utils/image-target";
 import { type ImageInsertOptions, parseImageMacroLine, serializeImageBlock } from "../utils/image-macro";
 import { renderMath, type MathNotation } from "../utils/math-render";
 import { getCachedMermaidSvg, renderMermaidAsync, getMermaidPlaceholderHtml, getMermaidModule } from "../utils/mermaid-render";
+import { CITATION_FORMATS, type CitationFormat, generateAnchorId } from "./bibliography-presets";
 
 // Joplin resource URL cache for resolving :/resourceId patterns
 const resourceUrlCache = new Map<string, string>();
@@ -79,12 +80,19 @@ interface DocHeaderBlockInfo {
   attributes: Array<{ name: string; value: string }>; // parsed :name: value pairs
 }
 
+interface BibliographyBlockInfo {
+  type: "bibliography";
+  attrLine: number;    // line with [bibliography]
+  headingLine: number; // line with == References (or similar heading)
+  endLine: number;     // last content line before next same/higher heading or EOF
+}
+
 /** Resolve a raw stem notation to a concrete MathNotation for rendering. */
 function resolveStemNotation(raw: "stem" | "latexmath" | "asciimath"): MathNotation {
   return raw === "stem" ? documentStemNotation : raw;
 }
 
-type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo | MermaidBlockInfo | DocHeaderBlockInfo;
+type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo | MermaidBlockInfo | DocHeaderBlockInfo | BibliographyBlockInfo;
 
 interface PreviewHeightCache {
   lineHeights: Map<number, number>;
@@ -97,7 +105,7 @@ const CODE_HEADER_FONT_EM = 0.75;       // matches .cm-lp-codeblock-header fontS
 const CODE_HEADER_LINE_HEIGHT = 1.4;     // approximate header line-height
 const CODE_HEADER_PADDING_EM = 0.286;    // matches .cm-lp-codeblock-header padding (each side)
 const CODE_BODY_PADDING_EM = 0.857;      // matches .cm-lp-codeblock-pre padding (each side)
-const PREVIEW_INTERACTIVE_SELECTOR = ".cm-lp-section-toggle, .cm-lp-xref, .cm-lp-image, .cm-lp-footnote";
+const PREVIEW_INTERACTIVE_SELECTOR = ".cm-lp-section-toggle, .cm-lp-xref, .cm-lp-image, .cm-lp-footnote, .cm-lp-biblio-ref, .cm-lp-checkbox, .cm-lp-content-block-caret";
 const FLOATING_PREVIEW_SELECTOR = ".cm-lp-floating-section-preview";
 const SECTION_TOGGLE_CLOSED = "\u25b8";
 const SECTION_TOGGLE_OPEN = "\u25be";
@@ -462,6 +470,10 @@ function createBlockEditorModal(view: EditorView, title: string) {
   modal.append(header, body, footer);
   overlay.appendChild(modal);
   view.dom.appendChild(overlay);
+  // Inherit color-scheme so native <select> dropdowns respect dark mode
+  const isDark = getComputedStyle(view.dom).colorScheme?.includes("dark")
+    || view.dom.closest(".dark-theme") != null;
+  if (isDark) overlay.style.colorScheme = "dark";
   blockEditorOverlay = overlay;
 
   return { overlay, modal, body, footer, footerLeft, footerRight, close };
@@ -485,6 +497,376 @@ function makeBlockEditorButton(label: string, kind: "primary" | "secondary" = "s
   button.className = `cm-lp-block-editor-btn cm-lp-block-editor-btn-${kind}`;
   button.textContent = label;
   return button;
+}
+
+function openBibliographyEditorModal(
+  view: EditorView,
+  _heading: string,
+  _entries: BibliographyEntry[],
+  blockFrom: number,
+  blockTo: number,
+) {
+  const doc = view.state.doc;
+  const blockText = doc.sliceString(blockFrom, blockTo);
+  const headingLineText = blockText.split("\n")[1] || "";
+  const levelMatch = headingLineText.match(/^(={1,5})\s+/);
+  const level = levelMatch ? levelMatch[1].length : 2;
+  const headingTitle = headingLineText.replace(/^=+\s+/, "");
+  const contentStart = blockText.indexOf("\n", blockText.indexOf("\n") + 1);
+  const rawContent = contentStart >= 0 ? blockText.slice(contentStart + 1).trim() : "";
+
+  const { overlay, modal, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Bibliography");
+  modal.style.width = "min(1200px, 100%)";
+  body.style.flex = "1";
+  body.style.minHeight = "0";
+  body.style.overflow = "hidden";
+
+  const panels = document.createElement("div");
+  panels.className = "cm-lp-mermaid-editor-panels";
+
+  const leftPanel = document.createElement("div");
+  leftPanel.className = "cm-lp-mermaid-editor-left";
+
+  const rightPanel = document.createElement("div");
+  rightPanel.className = "cm-lp-mermaid-editor-right";
+  rightPanel.style.overflow = "auto";
+  rightPanel.style.alignItems = "flex-start";
+  rightPanel.style.justifyContent = "flex-start";
+
+  // --- Format dropdown ---
+  const savedFormat = localStorage.getItem("asciidoc-biblio-format") || "raw";
+  let activeMode = savedFormat;
+
+  const formatRow = document.createElement("div");
+  formatRow.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:8px";
+  const formatLabel = document.createElement("span");
+  formatLabel.textContent = "Format:";
+  formatLabel.style.cssText = "font-weight:600;font-size:13px;white-space:nowrap";
+  const formatSelect = document.createElement("select");
+  formatSelect.className = "cm-lp-block-editor-input";
+  formatSelect.style.cssText = "flex:1";
+  const rawOption = document.createElement("option");
+  rawOption.value = "raw";
+  rawOption.textContent = "Raw AsciiDoc";
+  formatSelect.appendChild(rawOption);
+  for (const fmt of CITATION_FORMATS) {
+    const opt = document.createElement("option");
+    opt.value = fmt.id;
+    opt.textContent = fmt.label;
+    formatSelect.appendChild(opt);
+  }
+  formatSelect.value = savedFormat;
+  formatRow.appendChild(formatLabel);
+  formatRow.appendChild(formatSelect);
+  leftPanel.appendChild(formatRow);
+
+  // --- Title row ---
+  const titleRow = document.createElement("div");
+  titleRow.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:8px";
+  const titleLbl = document.createElement("span");
+  titleLbl.textContent = "Title:";
+  titleLbl.style.cssText = "font-weight:600;font-size:13px;white-space:nowrap";
+  const titleInput = document.createElement("input");
+  titleInput.type = "text";
+  titleInput.value = headingTitle;
+  titleInput.className = "cm-lp-block-editor-input";
+  titleInput.style.flex = "1";
+  titleRow.appendChild(titleLbl);
+  titleRow.appendChild(titleInput);
+  leftPanel.appendChild(titleRow);
+
+  // --- Raw mode container ---
+  const rawContainer = document.createElement("div");
+  rawContainer.style.cssText = "display:flex;flex-direction:column;flex:1;min-height:0";
+  const sourceInput = document.createElement("textarea");
+  sourceInput.className = "cm-lp-block-editor-textarea cm-lp-block-editor-textarea-code";
+  sourceInput.value = rawContent;
+  sourceInput.spellcheck = false;
+  sourceInput.placeholder = "* [[[ref1]]] Author. _Title_. Publisher. Year.\n* [[[ref2]]] Author. _Title_. Publisher. Year.";
+  rawContainer.appendChild(sourceInput);
+  leftPanel.appendChild(rawContainer);
+
+  // --- Preset mode container ---
+  const presetContainer = document.createElement("div");
+  presetContainer.style.cssText = "display:none;flex-direction:column;flex:1;min-height:0;overflow-y:auto;gap:8px";
+  leftPanel.appendChild(presetContainer);
+
+  // --- Preset entry state ---
+  interface PresetEntry {
+    id: string;
+    sourceType: string;
+    fields: Record<string, string>;
+    variants: Record<string, string>;
+  }
+  let presetEntries: PresetEntry[] = [];
+
+  function getFormat(): CitationFormat | null {
+    return CITATION_FORMATS.find(f => f.id === activeMode) || null;
+  }
+
+  function buildPresetUI() {
+    presetContainer.innerHTML = "";
+    const fmt = getFormat();
+    if (!fmt) return;
+
+    for (let idx = 0; idx < presetEntries.length; idx++) {
+      const entry = presetEntries[idx];
+      const card = document.createElement("div");
+      card.style.cssText = "border:1px solid var(--asciidoc-border,#ddd);border-radius:6px;padding:10px;background:rgba(128,128,128,0.04)";
+
+      // Header row: Entry N + source type + move/remove
+      const headerRow = document.createElement("div");
+      headerRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-bottom:8px";
+      const entryLabel = document.createElement("span");
+      entryLabel.textContent = `Entry ${idx + 1}`;
+      entryLabel.style.cssText = "font-weight:600;font-size:12px";
+      const typeSelect = document.createElement("select");
+      typeSelect.className = "cm-lp-block-editor-input";
+      typeSelect.style.cssText = "font-size:12px;padding:2px 6px;max-width:160px";
+      for (const st of fmt.sourceTypes) {
+        const opt = document.createElement("option");
+        opt.value = st.id;
+        opt.textContent = st.label;
+        typeSelect.appendChild(opt);
+      }
+      typeSelect.value = entry.sourceType;
+      typeSelect.addEventListener("change", () => {
+        entry.sourceType = typeSelect.value;
+        entry.fields = {};
+        entry.variants = {};
+        buildPresetUI();
+      });
+
+      const spacer = document.createElement("span");
+      spacer.style.flex = "1";
+
+      const moveUpBtn = document.createElement("button");
+      moveUpBtn.textContent = "\u25B2";
+      moveUpBtn.title = "Move up";
+      moveUpBtn.style.cssText = "padding:2px 6px;font-size:11px;cursor:pointer;background:transparent;border:1px solid var(--asciidoc-border,#ccc);border-radius:3px";
+      moveUpBtn.disabled = idx === 0;
+      moveUpBtn.addEventListener("click", () => { if (idx > 0) { [presetEntries[idx - 1], presetEntries[idx]] = [presetEntries[idx], presetEntries[idx - 1]]; buildPresetUI(); schedulePreview(); } });
+
+      const moveDownBtn = document.createElement("button");
+      moveDownBtn.textContent = "\u25BC";
+      moveDownBtn.title = "Move down";
+      moveDownBtn.style.cssText = "padding:2px 6px;font-size:11px;cursor:pointer;background:transparent;border:1px solid var(--asciidoc-border,#ccc);border-radius:3px";
+      moveDownBtn.disabled = idx === presetEntries.length - 1;
+      moveDownBtn.addEventListener("click", () => { if (idx < presetEntries.length - 1) { [presetEntries[idx], presetEntries[idx + 1]] = [presetEntries[idx + 1], presetEntries[idx]]; buildPresetUI(); schedulePreview(); } });
+
+      const removeBtn = document.createElement("button");
+      removeBtn.textContent = "\u2715";
+      removeBtn.title = "Remove entry";
+      removeBtn.style.cssText = "padding:2px 6px;font-size:11px;cursor:pointer;background:transparent;border:1px solid var(--asciidoc-border,#ccc);border-radius:3px;color:var(--asciidoc-fg,#333)";
+      removeBtn.addEventListener("click", () => { presetEntries.splice(idx, 1); buildPresetUI(); schedulePreview(); });
+
+      headerRow.append(entryLabel, typeSelect, spacer, moveUpBtn, moveDownBtn, removeBtn);
+      card.appendChild(headerRow);
+
+      // ID field
+      const idRow = document.createElement("div");
+      idRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-bottom:6px";
+      const idLbl = document.createElement("span");
+      idLbl.textContent = "ID:";
+      idLbl.style.cssText = "font-size:12px;min-width:70px;text-align:right";
+      const idInput = document.createElement("input");
+      idInput.type = "text";
+      idInput.value = entry.id;
+      idInput.className = "cm-lp-block-editor-input";
+      idInput.style.cssText = "flex:1;font-size:12px;padding:3px 6px";
+      idInput.placeholder = "(auto-generated)";
+      idInput.addEventListener("input", () => { entry.id = idInput.value; schedulePreview(); });
+      idRow.append(idLbl, idInput);
+      card.appendChild(idRow);
+
+      // Source-type-specific fields
+      const stDef = fmt.sourceTypes.find(s => s.id === entry.sourceType);
+      if (stDef) {
+        // Variant dropdowns
+        if (stDef.variants) {
+          for (const variant of stDef.variants) {
+            const vRow = document.createElement("div");
+            vRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-bottom:6px";
+            const vLbl = document.createElement("span");
+            vLbl.textContent = variant.label + ":";
+            vLbl.style.cssText = "font-size:12px;min-width:70px;text-align:right";
+            const vSelect = document.createElement("select");
+            vSelect.className = "cm-lp-block-editor-input";
+            vSelect.style.cssText = "flex:1;font-size:12px;padding:3px 6px";
+            for (const opt of variant.options) {
+              const o = document.createElement("option");
+              o.value = opt.value;
+              o.textContent = opt.label;
+              vSelect.appendChild(o);
+            }
+            vSelect.value = entry.variants[variant.key] || variant.options[0]?.value || "";
+            vSelect.addEventListener("change", () => { entry.variants[variant.key] = vSelect.value; schedulePreview(); });
+            vRow.append(vLbl, vSelect);
+            card.appendChild(vRow);
+          }
+        }
+
+        for (const field of stDef.fields) {
+          const fRow = document.createElement("div");
+          fRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-bottom:6px";
+          const fLbl = document.createElement("span");
+          fLbl.textContent = field.label + ":";
+          fLbl.style.cssText = `font-size:12px;min-width:70px;text-align:right${field.required ? ";font-weight:600" : ""}`;
+          const fInput = document.createElement("input");
+          fInput.type = "text";
+          fInput.value = entry.fields[field.key] || "";
+          fInput.className = "cm-lp-block-editor-input";
+          fInput.style.cssText = "flex:1;font-size:12px;padding:3px 6px";
+          if (field.placeholder) fInput.placeholder = field.placeholder;
+          fInput.addEventListener("input", () => { entry.fields[field.key] = fInput.value; schedulePreview(); });
+          fRow.append(fLbl, fInput);
+          card.appendChild(fRow);
+          if (field.helpText) {
+            const helpEl = document.createElement("div");
+            helpEl.textContent = field.helpText;
+            helpEl.style.cssText = "font-size:11px;color:var(--asciidoc-placeholder,#888);margin:-4px 0 4px 76px";
+            card.appendChild(helpEl);
+          }
+        }
+      }
+
+      presetContainer.appendChild(card);
+    }
+
+    // Add Entry button
+    const addBtn = document.createElement("button");
+    addBtn.textContent = "+ Add Entry";
+    addBtn.style.cssText = "padding:6px 14px;font-size:13px;cursor:pointer;border:1px dashed var(--asciidoc-border,#ccc);border-radius:6px;background:transparent;color:var(--asciidoc-fg,#333);align-self:center";
+    addBtn.addEventListener("click", () => {
+      const fmt = getFormat();
+      const defaultType = fmt?.sourceTypes[0]?.id || "book";
+      presetEntries.push({ id: "", sourceType: defaultType, fields: {}, variants: {} });
+      buildPresetUI();
+    });
+    presetContainer.appendChild(addBtn);
+  }
+
+  function generateRawFromPreset(): string {
+    const fmt = getFormat();
+    if (!fmt) return sourceInput.value;
+    const existingIds = new Set<string>();
+    // Auto-generate IDs where needed
+    for (const entry of presetEntries) {
+      if (!entry.id) {
+        entry.id = generateAnchorId(entry.fields.author || "", entry.fields.year || "", existingIds);
+      }
+      existingIds.add(entry.id);
+    }
+    const lines: string[] = [];
+    for (let i = 0; i < presetEntries.length; i++) {
+      const entry = presetEntries[i];
+      const formatted = fmt.formatEntry(entry.sourceType, entry.fields, entry.variants);
+      const xref = fmt.numbered ? String(i + 1) : entry.id;
+      const anchor = fmt.numbered ? `[[[${entry.id},${xref}]]]` : `[[[${entry.id}]]]`;
+      lines.push(`* ${anchor} ${formatted}`);
+    }
+    return lines.join("\n");
+  }
+
+  // --- Mode switching ---
+  function switchMode(mode: string) {
+    activeMode = mode;
+    localStorage.setItem("asciidoc-biblio-format", mode);
+    if (mode === "raw") {
+      rawContainer.style.display = "flex";
+      presetContainer.style.display = "none";
+    } else {
+      // Switch to preset: parse raw entries as freeform fallback
+      if (presetEntries.length === 0) {
+        const lines = sourceInput.value.split("\n");
+        for (const line of lines) {
+          const m = line.match(/^\*\s*\[\[\[([a-zA-Z][\w-]*?)(?:,[^\]]+)?\]\]\]\s*(.*)/);
+          if (m) {
+            presetEntries.push({
+              id: m[1],
+              sourceType: getFormat()?.sourceTypes[0]?.id || "book",
+              fields: { freeform: m[2] || "" },
+              variants: {},
+            });
+          }
+        }
+        if (presetEntries.length === 0) {
+          presetEntries.push({ id: "", sourceType: getFormat()?.sourceTypes[0]?.id || "book", fields: {}, variants: {} });
+        }
+      }
+      rawContainer.style.display = "none";
+      presetContainer.style.display = "flex";
+      buildPresetUI();
+    }
+    schedulePreview();
+  }
+
+  formatSelect.addEventListener("change", () => switchMode(formatSelect.value));
+
+  // --- Right panel: live preview ---
+  const previewInner = document.createElement("div");
+  previewInner.style.cssText = "padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.6;color:var(--asciidoc-fg,#333)";
+  rightPanel.appendChild(previewInner);
+
+  function updatePreview() {
+    const title = titleInput.value || "References";
+    const source = activeMode === "raw" ? sourceInput.value : generateRawFromPreset();
+    if (activeMode !== "raw") sourceInput.value = source; // sync raw textarea
+    let html = `<div style="font-size:1.5em;font-weight:700;margin-bottom:0.5em;padding-bottom:0.2em;border-bottom:1px solid var(--asciidoc-border,#ddd)">${escapeHtml(title)}</div>`;
+    for (const line of source.split("\n")) {
+      const m = line.match(/^\*\s*\[\[\[([a-zA-Z][\w-]*?)(?:,([^\]]+))?\]\]\]\s*(.*)/);
+      if (m) {
+        const display = m[2] || m[1];
+        const text = m[3] || "";
+        html += `<div style="margin:0.4em 0;padding-left:2em;text-indent:-2em"><span style="color:var(--asciidoc-link,#2156a5);font-weight:bold;margin-right:0.3em">[${escapeHtml(display)}]</span>${renderInline(text)}</div>`;
+      } else if (line.trim()) {
+        html += `<div style="margin:0.2em 0">${renderInline(line)}</div>`;
+      }
+    }
+    previewInner.innerHTML = html;
+  }
+
+  let previewTimer: any = null;
+  function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(updatePreview, 300);
+  }
+  sourceInput.addEventListener("input", schedulePreview);
+  titleInput.addEventListener("input", schedulePreview);
+
+  panels.appendChild(leftPanel);
+  panels.appendChild(rightPanel);
+  body.appendChild(panels);
+
+  // Initialize mode
+  switchMode(activeMode);
+  updatePreview();
+
+  // Footer buttons
+  const deleteBtn = makeBlockEditorButton("Delete Section");
+  deleteBtn.classList.add("cm-lp-block-editor-btn-danger");
+  deleteBtn.addEventListener("click", (e) => {
+    consumeEvent(e);
+    deleteBlockRange(view, blockFrom, blockTo);
+    close();
+  });
+  footerLeft.appendChild(deleteBtn);
+
+  const cancelBtn = makeBlockEditorButton("Cancel");
+  cancelBtn.addEventListener("click", (e) => { consumeEvent(e); close(); });
+
+  const saveBtn = makeBlockEditorButton("Save", "primary");
+  saveBtn.addEventListener("click", (e) => {
+    consumeEvent(e);
+    const title = titleInput.value || "References";
+    const content = (activeMode === "raw" ? sourceInput.value : generateRawFromPreset()).trim();
+    const result = `[bibliography]\n${"=".repeat(level)} ${title}\n\n${content}`;
+    view.dispatch({ changes: { from: blockFrom, to: blockTo, insert: result } });
+    close();
+  });
+
+  footerRight.append(cancelBtn, saveBtn);
+  requestAnimationFrame(() => { overlay.focus(); sourceInput.focus(); });
 }
 
 function openCodeBlockEditorModal(
@@ -1697,12 +2079,14 @@ function getBlockStartLineNumber(block: BlockInfo): number {
   if (block.type === "image" && block.titleLine > 0) return block.titleLine;
   if (block.type === "contentblock" && block.titleLine > 0) return block.titleLine;
   if (block.type === "contentblock" && block.attrLine > 0) return block.attrLine;
+  if (block.type === "bibliography") return block.attrLine;
   if (block.type === "image") return block.imageLine;
   return block.openLine;
 }
 
 function getBlockEndLineNumber(block: BlockInfo): number {
   if (block.type === "docheader") return block.endLine;
+  if (block.type === "bibliography") return block.endLine;
   if (block.type === "image") return block.imageLine;
   if (block.type === "stem") return block.closeLine;
   if (block.type === "mermaid") return block.closeLine;
@@ -1745,6 +2129,13 @@ function openPreviewBlockModal(view: EditorView, blockInfo: { block: BlockInfo; 
       diagramSource += view.state.doc.line(j).text;
     }
     openMermaidBlockEditorModal(view, diagramSource, blockFrom, blockTo);
+    return true;
+  }
+
+  if (block.type === "bibliography") {
+    const biblioEntries = parseBibliographyEntries(view.state.doc, block.headingLine, block.endLine);
+    const headingText = view.state.doc.line(block.headingLine).text.replace(/^=+\s+/, "");
+    openBibliographyEditorModal(view, headingText, biblioEntries, blockFrom, blockTo);
     return true;
   }
 
@@ -1902,6 +2293,25 @@ function detectBlocks(doc: any): BlockInfo[] {
       blocks.push({ type: "image", titleLine: -1, imageLine: i, options: standaloneImage });
       i += 1;
       continue;
+    }
+
+    // Detect bibliography section: [bibliography] followed by a heading
+    if (/^\[bibliography\]$/.test(text) && i + 1 <= doc.lines) {
+      const biblioHeadingMatch = doc.line(i + 1).text.match(/^(={1,5})\s+(.+)$/);
+      if (biblioHeadingMatch) {
+        const level = biblioHeadingMatch[1].length;
+        let endLine = i + 1;
+        for (let j = i + 2; j <= doc.lines; j++) {
+          const jText = doc.line(j).text;
+          const nextHeading = jText.match(/^(={1,5})\s+/);
+          if (nextHeading && nextHeading[1].length <= level) break;
+          endLine = j;
+        }
+        while (endLine > i + 1 && !doc.line(endLine).text.trim()) endLine--;
+        blocks.push({ type: "bibliography", attrLine: i, headingLine: i + 1, endLine });
+        i = endLine + 1;
+        continue;
+      }
     }
 
     const titleMatch = text.match(/^\.(?!\.)(.+)$/);
@@ -2392,6 +2802,61 @@ function toggleFootnotePopup(fnEl: HTMLElement, lineEl: HTMLElement) {
   setTimeout(() => document.addEventListener("mousedown", closeOnClick, true), 0);
 }
 
+// =====================================================
+// Bibliography reference popup
+// =====================================================
+
+let biblioPopup: HTMLElement | null = null;
+let biblioPopupLabel = "";
+
+function closeBiblioRefPopup() {
+  if (biblioPopup) {
+    biblioPopup.remove();
+    biblioPopup = null;
+    biblioPopupLabel = "";
+  }
+}
+
+function toggleBiblioRefPopup(refEl: HTMLElement, lineEl: HTMLElement) {
+  const label = refEl.dataset.biblioLabel || "";
+  if (biblioPopup && biblioPopupLabel === label) {
+    closeBiblioRefPopup();
+    return;
+  }
+  closeBiblioRefPopup();
+  const entryText = activeBiblioEntryText.get(label);
+  if (!entryText) return;
+
+  const scroller = lineEl.closest(".cm-scroller") as HTMLElement;
+  if (!scroller) return;
+
+  const popup = document.createElement("div");
+  popup.className = "cm-lp-footnote-popup"; // reuse footnote popup styling
+  const display = activeBiblioLabels.get(label) || label;
+  popup.innerHTML = `<strong style="color:var(--asciidoc-link,#2156a5)">[${escapeHtml(display)}]</strong> ${renderInline(entryText)}`;
+
+  scroller.appendChild(popup);
+  biblioPopup = popup;
+  biblioPopupLabel = label;
+
+  const scrollerRect = scroller.getBoundingClientRect();
+  const refRect = refEl.getBoundingClientRect();
+  const sampleLine = scroller.querySelector<HTMLElement>(".cm-line");
+  const basePad = sampleLine ? parseFloat(getComputedStyle(sampleLine).paddingLeft) : 20;
+  const pad = Math.round(basePad);
+  popup.style.top = (refRect.bottom - scrollerRect.top + scroller.scrollTop + 4) + "px";
+  popup.style.left = pad + "px";
+  popup.style.right = pad + "px";
+
+  const closeOnClick = (e: MouseEvent) => {
+    if (!popup.contains(e.target as Node) && e.target !== refEl) {
+      closeBiblioRefPopup();
+      document.removeEventListener("mousedown", closeOnClick, true);
+    }
+  };
+  setTimeout(() => document.addEventListener("mousedown", closeOnClick, true), 0);
+}
+
 function positionFloatingPanel(panel: HTMLDivElement, anchorEl: HTMLElement) {
   const scroller = panel.parentElement;
   if (!scroller) return;
@@ -2471,6 +2936,15 @@ class PreviewLineWidget extends WidgetType {
       });
     }
 
+    // Bibliography reference click → show popup with entry text
+    const biblioRefs = span.querySelectorAll<HTMLElement>(".cm-lp-biblio-ref");
+    for (const ref of biblioRefs) {
+      ref.addEventListener("mousedown", (e) => {
+        consumeEvent(e);
+        toggleBiblioRefPopup(ref, span);
+      });
+    }
+
     const images = span.querySelectorAll<HTMLElement>(".cm-lp-image");
     for (const image of images) {
       image.addEventListener("mousedown", (e) => consumeEvent(e));
@@ -2486,6 +2960,26 @@ class PreviewLineWidget extends WidgetType {
         const imageInfo = getImageBlockForLine(view.state.doc, lineNumber);
         if (!imageInfo) return;
         openImageEditorModal(view, imageInfo);
+      });
+    }
+
+    // Checkbox toggle — clicking ☐/☑ toggles [x]/[ ] in source
+    const checkboxes = span.querySelectorAll<HTMLElement>(".cm-lp-checkbox");
+    for (const cb of checkboxes) {
+      cb.addEventListener("mousedown", (e) => {
+        consumeEvent(e);
+        const view = getEditorViewFromElement(span);
+        if (!view) return;
+        const line = view.state.doc.lineAt(this.lineFrom);
+        const lineText = line.text;
+        const isChecked = cb.dataset.checked === "true";
+        // Toggle [ ] ↔ [x] in the source line
+        const newText = isChecked
+          ? lineText.replace(/\[x\]/, "[ ]")
+          : lineText.replace(/\[ \]/, "[x]");
+        if (newText !== lineText) {
+          view.dispatch({ changes: { from: line.from, to: line.to, insert: newText } });
+        }
       });
     }
 
@@ -2613,7 +3107,9 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
     const depth = checkMatch[1].length;
     const checked = checkMatch[2] === "x";
     const pad = (depth - 1) * 1.5;
-    const box = checked ? `<span style="color:var(--asciidoc-link,#2156a5)">\u2611</span>` : `\u2610`;
+    const box = checked
+      ? `<span class="cm-lp-checkbox" data-checked="true" style="color:var(--asciidoc-link,#2156a5);cursor:pointer">\u2611</span>`
+      : `<span class="cm-lp-checkbox" data-checked="false" style="cursor:pointer">\u2610</span>`;
     return `<span class="cm-lp-list cm-lp-list-d${depth}" style="padding-left:${pad}em"><span class="cm-lp-list-marker">${box}</span><span class="cm-lp-list-content">${renderInline(checkMatch[3])}</span></span>`;
   }
 
@@ -2703,6 +3199,10 @@ const asciidocAttributes: Record<string, string> = {
 let footnoteNumberMap: Map<string, number> = new Map(); // id → first assigned number
 let footnoteNextNumber = 1;
 let footnoteSeqCounter = 0; // incremented per renderInline footnote match
+
+// Bibliography label maps — populated by buildDecorations, read by renderInline
+let activeBiblioLabels = new Map<string, string>();     // label → display text (xreftext or label)
+let activeBiblioEntryText = new Map<string, string>();   // label → full entry text (for popups)
 
 // STEM/math rendering state
 let documentStemNotation: MathNotation = "asciimath"; // AsciiDoc default
@@ -2833,6 +3333,15 @@ function renderInline(text: string): string {
   result = result.replace(/(?<!link:)(https?:\/\/[^\s\[<]+)(?![^\[]*\])/g, '<span class="cm-lp-link">$1</span>');
   result = result.replace(/mailto:([^\[]+)\[([^\]]*)\]/g, '<span class="cm-lp-link">$2</span>');
 
+  // Bibliography anchors: [[[label]]] or [[[label,xreftext]]]
+  result = result.replace(
+    /\[\[\[([a-zA-Z][\w-]*?)(?:,([^\]]+))?\]\]\]/g,
+    (_m, label, xreftext) => {
+      const display = xreftext || label;
+      return `<span class="cm-lp-biblio-anchor">[${escapeHtml(display)}]</span>`;
+    }
+  );
+
   // Cross-references
   result = result.replace(/xref:([^\[]+)\[([^\]]*)\]/g, '<span class="cm-lp-link">$2</span>');
   result = result.replace(/&lt;&lt;([^,&>]+),(.+?)&gt;&gt;/g, (_match, idPart, text) => {
@@ -2847,7 +3356,13 @@ function renderInline(text: string): string {
     html += `</span>`;
     return html;
   });
-  result = result.replace(/&lt;&lt;([^&>]+)&gt;&gt;/g, '<span class="cm-lp-link">[$1]</span>');
+  result = result.replace(/&lt;&lt;([^&>]+)&gt;&gt;/g, (_m, label) => {
+    const biblioXref = activeBiblioLabels.get(label);
+    if (biblioXref) {
+      return `<span class="cm-lp-biblio-ref" data-biblio-label="${escapeHtml(label)}">[${escapeHtml(biblioXref)}]</span>`;
+    }
+    return `<span class="cm-lp-link">[${label}]</span>`;
+  });
 
   // Keyboard, Button, Menu macros
   result = result.replace(/kbd:\[([^\]]+)\]/g, '<kbd class="cm-lp-kbd">$1</kbd>');
@@ -3426,6 +3941,83 @@ class BlockquotePreviewWidget extends WidgetType {
   }
 }
 
+// =====================================================
+// Bibliography Preview Widget (cursor outside block)
+// =====================================================
+
+interface BibliographyEntry {
+  label: string;
+  xreftext: string;
+  text: string;
+}
+
+function parseBibliographyEntries(doc: any, headingLine: number, endLine: number): BibliographyEntry[] {
+  const entries: BibliographyEntry[] = [];
+  for (let ln = headingLine + 1; ln <= endLine; ln++) {
+    const lineText = doc.line(ln).text;
+    const anchorMatch = lineText.match(/^\*\s*\[\[\[([a-zA-Z][\w-]*?)(?:,([^\]]+))?\]\]\]\s*(.*)/);
+    if (anchorMatch) {
+      entries.push({
+        label: anchorMatch[1],
+        xreftext: anchorMatch[2] || anchorMatch[1],
+        text: anchorMatch[3] || "",
+      });
+    }
+  }
+  return entries;
+}
+
+class BibliographyPreviewWidget extends WidgetType {
+  constructor(
+    readonly heading: string,
+    readonly entries: BibliographyEntry[],
+    readonly lineFrom: number,
+    readonly blockFrom: number,
+    readonly blockTo: number,
+  ) { super(); }
+
+  toDOM(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-lp-bibliography-section";
+    wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
+    attachBlockModalHandlers(wrap, (view) => {
+      openBibliographyEditorModal(view, this.heading, this.entries, this.blockFrom, this.blockTo);
+    });
+
+    const heading = document.createElement("div");
+    heading.className = "cm-lp-bibliography-heading";
+    heading.textContent = this.heading;
+    wrap.appendChild(heading);
+
+    for (const entry of this.entries) {
+      const div = document.createElement("div");
+      div.className = "cm-lp-bibliography-entry";
+      div.innerHTML = `<span class="cm-lp-biblio-anchor">[${escapeHtml(entry.xreftext)}]</span> ${renderInline(entry.text)}`;
+      wrap.appendChild(div);
+    }
+
+    return wrap;
+  }
+
+  eq(other: BibliographyPreviewWidget): boolean {
+    return this.heading === other.heading
+      && this.entries.length === other.entries.length
+      && this.entries.every((e, i) => e.label === other.entries[i].label && e.text === other.entries[i].text)
+      && this.lineFrom === other.lineFrom
+      && this.blockFrom === other.blockFrom
+      && this.blockTo === other.blockTo;
+  }
+
+  ignoreEvent(event: Event): boolean {
+    return event.type === "mousedown"
+      || event.type === "mouseup"
+      || event.type === "mousemove"
+      || event.type === "click"
+      || event.type === "selectstart"
+      || event.type === "dragstart";
+  }
+}
+
 class ContentBlockPreviewWidget extends WidgetType {
   constructor(
     readonly kind: ContentBlockInfo["kind"],
@@ -3473,6 +4065,7 @@ class ContentBlockPreviewWidget extends WidgetType {
       const caret = document.createElement("span");
       caret.className = "cm-lp-content-block-caret";
       caret.textContent = "\u25b8";
+      caret.style.cursor = "pointer";
       summary.appendChild(caret);
 
       const text = document.createElement("span");
@@ -3481,6 +4074,28 @@ class ContentBlockPreviewWidget extends WidgetType {
       summary.appendChild(text);
 
       wrap.appendChild(summary);
+
+      // Expandable body — hidden by default
+      const body = document.createElement("div");
+      body.className = "cm-lp-content-block-body";
+      body.style.display = "none";
+      body.style.marginTop = "0.5em";
+      for (const line of this.lines) {
+        const lineEl = document.createElement("div");
+        lineEl.className = `cm-lp-content-block-line${line.empty ? " cm-lp-content-block-line-empty" : ""}`;
+        lineEl.innerHTML = line.html;
+        body.appendChild(lineEl);
+      }
+      wrap.appendChild(body);
+
+      // Toggle expand/collapse on caret click
+      caret.addEventListener("mousedown", (e) => {
+        consumeEvent(e);
+        const expanded = body.style.display !== "none";
+        body.style.display = expanded ? "none" : "block";
+        caret.textContent = expanded ? "\u25b8" : "\u25be"; // ▸ or ▾
+      });
+
       return wrap;
     }
 
@@ -4136,6 +4751,24 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
   // Reset footnote numbering for this render pass
   resetFootnoteNumbering();
 
+  // Build bibliography label maps for cross-reference rendering and popups
+  activeBiblioLabels = new Map();
+  activeBiblioEntryText = new Map();
+  for (const block of blocks) {
+    if (block.type !== "bibliography") continue;
+    for (let ln = block.headingLine + 1; ln <= block.endLine; ln++) {
+      const lineText = doc.line(ln).text;
+      const anchorMatch = lineText.match(/\[\[\[([a-zA-Z][\w-]*?)(?:,([^\]]+))?\]\]\]/);
+      if (anchorMatch) {
+        const label = anchorMatch[1];
+        const xreftext = anchorMatch[2] || label;
+        activeBiblioLabels.set(label, xreftext);
+        const entryText = lineText.replace(/^\*\s*\[\[\[.*?\]\]\]\s*/, "").trim();
+        activeBiblioEntryText.set(label, entryText);
+      }
+    }
+  }
+
   // Precompute ordered list numbering
   const listNumbers = new Map<number, number>();
   {
@@ -4226,9 +4859,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       } else if (block.type === "contentblock") {
         if (!cursorInBlock) {
           const firstLine = doc.line(blockStart);
-          const contentLines = block.kind === "collapsible"
-            ? []
-            : buildContentBlockPreviewLines(doc, block.openLine, block.closeLine, listNumbers);
+          const contentLines = buildContentBlockPreviewLines(doc, block.openLine, block.closeLine, listNumbers);
 
           builder.add(firstLine.from, firstLine.to, Decoration.replace({
             widget: new ContentBlockPreviewWidget(
@@ -4472,6 +5103,30 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             }
           }
         }
+      } else if (block.type === "bibliography") {
+        if (!cursorInBlock) {
+          const headingText = doc.line(block.headingLine).text.replace(/^=+\s+/, "");
+          const biblioEntries = parseBibliographyEntries(doc, block.headingLine, block.endLine);
+          const firstLine = doc.line(blockStart);
+          builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
+          builder.add(firstLine.from, firstLine.to, Decoration.replace({
+            widget: new BibliographyPreviewWidget(
+              headingText,
+              biblioEntries,
+              firstLine.from,
+              fromPos,
+              toPos,
+            ),
+          }));
+          for (let j = blockStart + 1; j <= blockEnd; j++) {
+            const line = doc.line(j);
+            builder.add(line.from, line.from, hiddenLineDecoration);
+            if (line.from < line.to) {
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+            }
+          }
+        }
+        // Edit mode: show raw lines unchanged
       }
 
       i = blockEnd + 1;
@@ -4624,9 +5279,11 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         }
         this.heightCache.lineHeights = remapped;
         closeFootnotePopup();
+        closeBiblioRefPopup();
       }
       if (update.selectionSet) {
         closeFootnotePopup();
+        closeBiblioRefPopup();
       }
       // Don't lock scroll when search panel is open — search needs to scroll to matches
       const searchOpen = update.view.dom.querySelector(".cm-panel.cm-search") != null;
@@ -4701,7 +5358,7 @@ const livePreviewPlugin = ViewPlugin.fromClass(
           const blockEnd = getBlockEndLineNumber(block);
           if (cursorLine >= blockStart && cursorLine <= blockEnd) {
             // Don't auto-open for content blocks (they show raw) or images (complex)
-            if (block.type === "code" || block.type === "table" || block.type === "blockquote" || block.type === "stem" || block.type === "mermaid") {
+            if (block.type === "code" || block.type === "table" || block.type === "blockquote" || block.type === "stem" || block.type === "mermaid" || block.type === "bibliography") {
               // Delay slightly so CM6 finishes its update cycle
               setTimeout(() => {
                 if (blockEditorOverlay) return; // Modal already opened
@@ -5469,6 +6126,37 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lp-colist-text": {
     flex: "1",
     minWidth: "0",
+  },
+
+  // Bibliography Section Preview
+  ".cm-lp-bibliography-section": {
+    margin: "0.8em 0",
+    padding: "0.5em 0",
+  },
+  ".cm-lp-bibliography-heading": {
+    fontSize: "1.5em",
+    fontWeight: "700",
+    marginBottom: "0.5em",
+    paddingBottom: "0.2em",
+    borderBottom: "1px solid var(--asciidoc-border, #ddd)",
+  },
+  ".cm-lp-bibliography-entry": {
+    margin: "0.4em 0",
+    paddingLeft: "2em",
+    textIndent: "-2em",
+    lineHeight: "1.6",
+  },
+  ".cm-lp-biblio-anchor": {
+    color: "var(--asciidoc-link, #2156a5)",
+    fontWeight: "bold",
+    marginRight: "0.3em",
+  },
+  ".cm-lp-biblio-ref": {
+    color: "var(--asciidoc-link, #2156a5)",
+    cursor: "pointer",
+  },
+  ".cm-lp-biblio-ref:hover": {
+    textDecoration: "underline",
   },
 
   // Table Preview

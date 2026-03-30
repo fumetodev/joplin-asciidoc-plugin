@@ -473,6 +473,18 @@
 	top: -0.125em;
 }
 
+/* ===== Bibliography ===== */
+#preview-pane .ulist.bibliography ul {
+	list-style: none;
+	padding: 0;
+}
+
+#preview-pane .ulist.bibliography li {
+	margin: 0.5em 0;
+	padding-left: 2em;
+	text-indent: -2em;
+}
+
 /* ===== TOC ===== */
 #preview-pane #toc {
 	margin: 1em 0;
