@@ -917,6 +917,8 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
     dd.className = "split-dropdown open symbols-dropdown";
     dd.setAttribute("role", "menu");
 
+    let searchMode = false;
+
     // Category tabs
     const tabsRow = document.createElement("div");
     tabsRow.className = "symbols-tabs";
@@ -928,6 +930,8 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
       btn.className = `symbols-tab${i === activeSymbolCat ? " active" : ""}`;
       btn.textContent = cat.name;
       btn.addEventListener("click", () => {
+        searchMode = false;
+        searchInput.value = "";
         activeSymbolCat = i;
         for (let j = 0; j < tabButtons.length; j++) {
           tabButtons[j].classList.toggle("active", j === i);
@@ -944,10 +948,10 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
     grid.className = "symbols-grid";
     dd.appendChild(grid);
 
-    function renderGrid() {
+    function renderGrid(items?: typeof symbolCategories[0]["items"]) {
       grid.innerHTML = "";
-      const items = symbolCategories[activeSymbolCat].items;
-      for (const sym of items) {
+      const list = items || symbolCategories[activeSymbolCat].items;
+      for (const sym of list) {
         const btn = document.createElement("button");
         btn.className = "symbol-btn";
         if (sym.char.length > 1 && (sym.char.codePointAt(0) ?? 0) < 256) {
@@ -958,7 +962,63 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
         btn.addEventListener("click", () => { insertText(sym.insert); closeAll(); });
         grid.appendChild(btn);
       }
+      if (list.length === 0) {
+        const empty = document.createElement("div");
+        empty.style.cssText = "grid-column:1/-1;text-align:center;padding:12px;color:var(--asciidoc-placeholder,#888);font-size:12px";
+        empty.textContent = "No symbols found";
+        grid.appendChild(empty);
+      }
     }
+
+    // Search bar
+    const searchBar = document.createElement("div");
+    searchBar.className = "symbols-search";
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.placeholder = "Search symbols\u2026";
+    searchInput.addEventListener("input", () => {
+      const query = searchInput.value.trim().toLowerCase();
+      if (query) {
+        searchMode = true;
+        // Deselect all tabs
+        for (const tb of tabButtons) tb.classList.remove("active");
+        // Search across all categories
+        const results: typeof symbolCategories[0]["items"] = [];
+        for (const cat of symbolCategories) {
+          for (const sym of cat.items) {
+            if (sym.label.toLowerCase().includes(query) || sym.char.includes(query) || sym.insert.toLowerCase().includes(query)) {
+              results.push(sym);
+            }
+          }
+        }
+        renderGrid(results);
+      } else {
+        // Clear search — go back to default tab
+        searchMode = false;
+        activeSymbolCat = 0;
+        for (let j = 0; j < tabButtons.length; j++) {
+          tabButtons[j].classList.toggle("active", j === 0);
+        }
+        renderGrid();
+      }
+    });
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "symbols-search-clear";
+    clearBtn.textContent = "\u2715";
+    clearBtn.title = "Clear search";
+    clearBtn.addEventListener("click", () => {
+      searchInput.value = "";
+      searchMode = false;
+      activeSymbolCat = 0;
+      for (let j = 0; j < tabButtons.length; j++) {
+        tabButtons[j].classList.toggle("active", j === 0);
+      }
+      renderGrid();
+      searchInput.focus();
+    });
+    searchBar.appendChild(searchInput);
+    searchBar.appendChild(clearBtn);
+    dd.appendChild(searchBar);
 
     renderGrid();
     wrap.appendChild(dd);
@@ -1171,7 +1231,7 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
   wrapper.appendChild(createRibbonSection("Media", mediaRow));
 
   // -----------------------------------------------------------------------
-  // Symbols & Emojis section
+  // Symbols section
   // -----------------------------------------------------------------------
 
   const symbolsRow = document.createElement("div");
@@ -1180,11 +1240,11 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
   symbolsRow.appendChild(createSplitButtonToggle(
     "symbols",
     `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>`,
-    "Insert Symbol or Emoji",
+    "Insert Symbol",
     "Browse symbols",
   ));
 
-  wrapper.appendChild(createRibbonSection("Symbols & Emojis", symbolsRow));
+  wrapper.appendChild(createRibbonSection("Symbols", symbolsRow));
 
   return {
     element: wrapper,

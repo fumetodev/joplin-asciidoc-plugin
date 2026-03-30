@@ -67,9 +67,10 @@ interface StemBlockInfo {
 
 interface MermaidBlockInfo {
   type: "mermaid";
-  attrLine: number;   // line with [mermaid]
+  attrLine: number;   // line with [mermaid] or [mermaid,width=N%]
   openLine: number;   // line with opening ----
   closeLine: number;  // line with closing ----
+  width: number;      // display width percentage (10-100, default 100)
 }
 
 interface DocHeaderBlockInfo {
@@ -379,8 +380,9 @@ function serializeStemBlock(notation: string, expression: string): string {
   return `[${notation}]\n++++\n${expression}\n++++`;
 }
 
-function serializeMermaidBlock(source: string): string {
-  return `[mermaid]\n----\n${source}\n----`;
+function serializeMermaidBlock(source: string, width?: number): string {
+  const attr = width && width < 100 ? `[mermaid,width=${width}%]` : "[mermaid]";
+  return `${attr}\n----\n${source}\n----`;
 }
 
 function deleteBlockRange(view: EditorView, blockFrom: number, blockTo: number) {
@@ -1306,6 +1308,7 @@ function openMermaidBlockEditorModal(
   source: string,
   blockFrom: number,
   blockTo: number,
+  initialWidth: number = 100,
 ) {
   const { overlay, modal, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Mermaid Diagram");
   modal.style.width = "min(1200px, 100%)";
@@ -1413,7 +1416,30 @@ function openMermaidBlockEditorModal(
   rebuildToolbar();
   leftPanel.appendChild(toolbarWrap);
 
-  // Type change is handled by the custom dropdown click handlers above
+  // ── Display Scale slider ──
+  let currentWidth = initialWidth;
+  const scaleRow = document.createElement("div");
+  scaleRow.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:8px";
+  const scaleLabel = document.createElement("span");
+  scaleLabel.textContent = "Display Scale:";
+  scaleLabel.style.cssText = "font-size:12px;font-weight:600;white-space:nowrap";
+  const scaleSlider = document.createElement("input");
+  scaleSlider.type = "range";
+  scaleSlider.min = "10";
+  scaleSlider.max = "100";
+  scaleSlider.step = "5";
+  scaleSlider.value = String(initialWidth);
+  scaleSlider.className = "ribbon-margin-slider";
+  scaleSlider.style.flex = "1";
+  const scaleValueSpan = document.createElement("span");
+  scaleValueSpan.textContent = `${initialWidth}%`;
+  scaleValueSpan.style.cssText = "font-size:12px;min-width:3em;text-align:right";
+  scaleSlider.addEventListener("input", () => {
+    currentWidth = parseInt(scaleSlider.value);
+    scaleValueSpan.textContent = `${currentWidth}%`;
+  });
+  scaleRow.append(scaleLabel, scaleSlider, scaleValueSpan);
+  leftPanel.appendChild(scaleRow);
 
   // ── Source textarea ──
   const sourceInput = document.createElement("textarea");
@@ -1551,7 +1577,7 @@ function openMermaidBlockEditorModal(
       changes: {
         from: blockFrom,
         to: blockTo,
-        insert: serializeMermaidBlock(sourceInput.value),
+        insert: serializeMermaidBlock(sourceInput.value, currentWidth),
       },
     });
     closeWithCleanup();
@@ -2128,7 +2154,7 @@ function openPreviewBlockModal(view: EditorView, blockInfo: { block: BlockInfo; 
       if (diagramSource) diagramSource += "\n";
       diagramSource += view.state.doc.line(j).text;
     }
-    openMermaidBlockEditorModal(view, diagramSource, blockFrom, blockTo);
+    openMermaidBlockEditorModal(view, diagramSource, blockFrom, blockTo, block.width);
     return true;
   }
 
@@ -2480,9 +2506,10 @@ function detectBlocks(doc: any): BlockInfo[] {
       }
     }
 
-    // Detect mermaid block: [mermaid] followed by ----
+    // Detect mermaid block: [mermaid] or [mermaid,width=N%] followed by ----
     // Must come before code block detection to avoid matching as a no-language code block.
-    if (/^\[mermaid\]$/.test(text) && i + 1 <= doc.lines) {
+    const mermaidMatch = text.match(/^\[mermaid(?:,([^\]]*))?\]$/);
+    if (mermaidMatch && i + 1 <= doc.lines) {
       const nextText = doc.line(i + 1).text.trim();
       if (/^-{4,}$/.test(nextText)) {
         let closeLine = -1;
@@ -2493,7 +2520,10 @@ function detectBlocks(doc: any): BlockInfo[] {
           }
         }
         if (closeLine > 0) {
-          blocks.push({ type: "mermaid", attrLine: i, openLine: i + 1, closeLine });
+          const mermaidAttrs = mermaidMatch[1] || "";
+          const mermaidWidthMatch = mermaidAttrs.match(/width=(\d+)%?/);
+          const mermaidWidth = mermaidWidthMatch ? Math.max(10, Math.min(100, parseInt(mermaidWidthMatch[1]))) : 100;
+          blocks.push({ type: "mermaid", attrLine: i, openLine: i + 1, closeLine, width: mermaidWidth });
           i = closeLine + 1;
           continue;
         }
@@ -3613,6 +3643,7 @@ class MermaidBlockPreviewWidget extends WidgetType {
     readonly lineFrom: number,
     readonly blockFrom: number,
     readonly blockTo: number,
+    readonly width: number,
   ) { super(); }
 
   toDOM(): HTMLElement {
@@ -3620,8 +3651,14 @@ class MermaidBlockPreviewWidget extends WidgetType {
     wrap.className = "cm-lp-mermaid-block";
     wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
 
+    if (this.width < 100) {
+      wrap.style.maxWidth = `${this.width}%`;
+      wrap.style.marginLeft = "auto";
+      wrap.style.marginRight = "auto";
+    }
+
     attachBlockModalHandlers(wrap, (view) => {
-      openMermaidBlockEditorModal(view, this.source, this.blockFrom, this.blockTo);
+      openMermaidBlockEditorModal(view, this.source, this.blockFrom, this.blockTo, this.width);
     });
 
     const content = document.createElement("div");
@@ -3647,7 +3684,8 @@ class MermaidBlockPreviewWidget extends WidgetType {
       && this.svgHtml === other.svgHtml
       && this.lineFrom === other.lineFrom
       && this.blockFrom === other.blockFrom
-      && this.blockTo === other.blockTo;
+      && this.blockTo === other.blockTo
+      && this.width === other.width;
   }
 
   ignoreEvent(event: Event): boolean {
@@ -5093,6 +5131,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               firstLine.from,
               fromPos,
               toPos,
+              block.width,
             ),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {

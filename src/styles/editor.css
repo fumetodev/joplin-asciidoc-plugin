@@ -1398,7 +1398,7 @@ html, body {
 
 /* Symbols picker (InsertPanel) */
 .symbols-dropdown {
-	width: 320px !important;
+	width: 400px !important;
 	padding: 0 !important;
 	left: 50%;
 	right: auto !important;
@@ -1415,15 +1415,15 @@ html, body {
 }
 
 .symbols-tabs {
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
 	gap: 0;
 	border-bottom: 1px solid var(--asciidoc-border, #ddd);
 	padding: 4px 4px 0;
 }
 
 .symbols-tab {
-	padding: 4px 8px !important;
+	padding: 5px 4px !important;
 	border: none !important;
 	border-radius: 4px 4px 0 0 !important;
 	background: transparent !important;
@@ -1434,6 +1434,46 @@ html, body {
 	white-space: nowrap;
 	min-width: unset !important;
 	width: auto !important;
+	text-align: center;
+}
+
+.symbols-search {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-top: 1px solid var(--asciidoc-border, #ddd);
+}
+
+.symbols-search input {
+	flex: 1;
+	padding: 4px 8px;
+	border: 1px solid var(--asciidoc-border, #ccc);
+	border-radius: 4px;
+	background: var(--asciidoc-btn-bg, #fff);
+	color: var(--asciidoc-fg, #333);
+	font-size: 12px;
+	outline: none;
+}
+
+.symbols-search input:focus {
+	border-color: var(--asciidoc-link, #2156a5);
+}
+
+.symbols-search-clear {
+	padding: 2px 6px !important;
+	min-width: unset !important;
+	min-height: unset !important;
+	border: none !important;
+	background: transparent !important;
+	color: var(--asciidoc-placeholder, #888) !important;
+	font-size: 14px !important;
+	cursor: pointer;
+	line-height: 1;
+}
+
+.symbols-search-clear:hover {
+	color: var(--asciidoc-fg, #333) !important;
 }
 
 .symbols-tab:hover {
