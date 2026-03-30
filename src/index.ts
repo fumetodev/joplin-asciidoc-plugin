@@ -230,8 +230,8 @@ function convertMarkdownInlineFormatting(text: string): string {
       // Bold: **text** → *text*
       segments[j] = segments[j].replace(/\*\*(.+?)\*\*/g, "*$1*");
 
-      // Strikethrough: ~~text~~ → [line-through]#text#
-      segments[j] = segments[j].replace(/~~(.+?)~~/g, "[line-through]#$1#");
+      // Strikethrough: ~~text~~ → [.line-through]#text#
+      segments[j] = segments[j].replace(/~~(.+?)~~/g, "[.line-through]#$1#");
     }
     lines[i] = segments.join("");
   }

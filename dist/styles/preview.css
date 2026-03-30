@@ -448,6 +448,31 @@
 	margin: 0.3em 0;
 }
 
+/* Callout number badges */
+#preview-pane .conum[data-value] {
+	display: inline-block;
+	color: #fff !important;
+	background: rgba(0, 0, 0, 0.8);
+	border-radius: 50%;
+	text-align: center;
+	font-size: 0.75em;
+	width: 1.67em;
+	height: 1.67em;
+	line-height: 1.67em;
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	font-style: normal;
+	font-weight: bold;
+}
+
+#preview-pane .conum[data-value]::after {
+	content: attr(data-value);
+}
+
+#preview-pane pre .conum[data-value] {
+	position: relative;
+	top: -0.125em;
+}
+
 /* ===== TOC ===== */
 #preview-pane #toc {
 	margin: 1em 0;

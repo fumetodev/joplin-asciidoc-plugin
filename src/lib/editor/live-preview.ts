@@ -1549,8 +1549,8 @@ function buildContentBlockPreviewLines(
     const text = entry.text;
     const trimmedText = text.trim();
 
-    // Detect source/code blocks: [source,lang] followed by ---- ... ----
-    const sourceAttrMatch = trimmedText.match(/^\[source(?:,([^\]]*))?\]$/);
+    // Detect source/code blocks: [source,lang,...], [source], or [,lang,...] followed by ---- ... ----
+    const sourceAttrMatch = trimmedText.match(/^\[(?:source|(?=,))(?:,([^\],]+))?((?:,[^\]]*)?)\]$/);
     if (sourceAttrMatch) {
       const lang = (sourceAttrMatch[1] || "").trim();
       // Look for ---- on next line
@@ -1570,10 +1570,24 @@ function buildContentBlockPreviewLines(
             codeLines.push(trimmed[j].text);
           }
           const langLabel = lang ? lang.toUpperCase() : "CODE";
-          const codeHtml = `<div class="cm-lp-codeblock" style="margin:0.4em 0"><div class="cm-lp-codeblock-header">${escapeHtml(langLabel)}</div><pre class="cm-lp-codeblock-pre"><code>${escapeHtml(codeLines.join("\n"))}</code></pre></div>`;
+          const innerLineComment = sourceAttrMatch[2] ? parseLineComment(sourceAttrMatch[2]) : undefined;
+          const { cleanedCode: innerClean, callouts: innerCallouts } = processCodeCallouts(codeLines.join("\n"), innerLineComment);
+          const codeContentHtml = renderCodeWithCalloutBadges(innerClean, innerCallouts);
+          const codeHtml = `<div class="cm-lp-codeblock" style="margin:0.4em 0"><div class="cm-lp-codeblock-header">${escapeHtml(langLabel)}</div><pre class="cm-lp-codeblock-pre"><code>${codeContentHtml}</code></pre></div>`;
           collapsed.push({ html: codeHtml, empty: false });
           previousWasEmpty = false;
           idx = codeEnd + 1;
+          // Scan for callout list items after code block
+          let clAutoNum = 0;
+          while (idx < trimmed.length) {
+            const nextText = trimmed[idx].text.trim();
+            if (!nextText) { idx++; continue; }
+            const clMatch = nextText.match(/^<(\d+|\.)>\s+(.+)$/);
+            if (!clMatch) break;
+            const clNum = clMatch[1] === "." ? ++clAutoNum : parseInt(clMatch[1], 10);
+            collapsed.push({ html: renderCalloutListItem(clNum, clMatch[2]), empty: false });
+            idx++;
+          }
           continue;
         }
       }
@@ -1593,10 +1607,23 @@ function buildContentBlockPreviewLines(
         for (let j = idx + 1; j < codeEnd; j++) {
           codeLines.push(trimmed[j].text);
         }
-        const codeHtml = `<div class="cm-lp-codeblock" style="margin:0.4em 0"><div class="cm-lp-codeblock-header">CODE</div><pre class="cm-lp-codeblock-pre"><code>${escapeHtml(codeLines.join("\n"))}</code></pre></div>`;
+        const { cleanedCode: innerClean2, callouts: innerCallouts2 } = processCodeCallouts(codeLines.join("\n"));
+        const codeContentHtml2 = renderCodeWithCalloutBadges(innerClean2, innerCallouts2);
+        const codeHtml = `<div class="cm-lp-codeblock" style="margin:0.4em 0"><div class="cm-lp-codeblock-header">CODE</div><pre class="cm-lp-codeblock-pre"><code>${codeContentHtml2}</code></pre></div>`;
         collapsed.push({ html: codeHtml, empty: false });
         previousWasEmpty = false;
         idx = codeEnd + 1;
+        // Scan for callout list items after code block
+        let clAutoNum2 = 0;
+        while (idx < trimmed.length) {
+          const nextText = trimmed[idx].text.trim();
+          if (!nextText) { idx++; continue; }
+          const clMatch = nextText.match(/^<(\d+|\.)>\s+(.+)$/);
+          if (!clMatch) break;
+          const clNum = clMatch[1] === "." ? ++clAutoNum2 : parseInt(clMatch[1], 10);
+          collapsed.push({ html: renderCalloutListItem(clNum, clMatch[2]), empty: false });
+          idx++;
+        }
         continue;
       }
     }
@@ -2062,8 +2089,8 @@ function detectBlocks(doc: any): BlockInfo[] {
       }
     }
 
-    // Detect code block: [source,lang] followed by ----
-    const sourceMatch = text.match(/^\[source(?:,(\w+))?\]$/);
+    // Detect code block: [source,lang,...], [source], or [,lang,...] followed by ----
+    const sourceMatch = text.match(/^\[(?:source|(?=,))(?:,(\w+))?((?:,[^\]]*)?)\]$/);
     if (sourceMatch && i + 1 <= doc.lines) {
       const nextText = doc.line(i + 1).text.trim();
       if (/^-{4,}$/.test(nextText)) {
@@ -2083,10 +2110,10 @@ function detectBlocks(doc: any): BlockInfo[] {
       }
     }
 
-    // Detect standalone code block: ---- without preceding [source,...]
+    // Detect standalone code block: ---- without preceding [source,...] or [,lang]
     if (/^-{4,}$/.test(text)) {
       const prevText = i > 1 ? doc.line(i - 1).text.trim() : "";
-      if (!/^\[source/.test(prevText)) {
+      if (!/^\[(?:source|,)/.test(prevText)) {
         let closeLine = -1;
         for (let j = i + 1; j <= doc.lines; j++) {
           if (/^-{4,}$/.test(doc.line(j).text.trim())) {
@@ -2903,6 +2930,116 @@ function escapeHtml(text: string): string {
 }
 
 // =====================================================
+// Callout Processing
+// =====================================================
+
+interface CalloutEntry {
+  lineIndex: number;  // 0-based line within the code block
+  value: number;      // resolved callout number
+}
+
+// Matches trailing callout section: optional comment prefix + one or more <N> or <.> markers
+const CALLOUT_TAIL_RE = /(\s*(?:\/\/|#|;)\s*)((?:<(?:\d+|\.)>)(?:\s*<(?:\d+|\.)>)*)\s*$/;
+// Same but bare (no comment prefix)
+const CALLOUT_BARE_RE = /(\s*)((?:<(?:\d+|\.)>)(?:\s*<(?:\d+|\.)>)*)\s*$/;
+// XML comment style: <!--N--> or <!--.-->
+const CALLOUT_XML_RE = /(\s*)((?:<!--(?:\d+|\.)-->)(?:\s*<!--(?:\d+|\.)-->)*)\s*$/;
+// Extract individual callout values from a matched tail
+const CALLOUT_VALUE_RE = /<(\d+|\.)>/g;
+const CALLOUT_XML_VALUE_RE = /<!--(\d+|\.)-->/g;
+
+function parseLineComment(attrText: string): string | undefined {
+  const m = attrText.match(/line-comment=([^\],]+)/);
+  return m ? m[1].trim() : undefined;
+}
+
+function processCodeCallouts(code: string, lineComment?: string): { cleanedCode: string; callouts: CalloutEntry[] } {
+  const lines = code.split("\n");
+  const callouts: CalloutEntry[] = [];
+  let autoNumber = 0;
+  const cleanedLines: string[] = [];
+
+  // Build a custom regex when line-comment attribute is specified
+  let customTailRe: RegExp | null = null;
+  if (lineComment) {
+    const escaped = lineComment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    customTailRe = new RegExp(`(\\s*${escaped}\\s*)((?:<(?:\\d+|\\.)>)(?:\\s*<(?:\\d+|\\.)>)*)\\s*$`);
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    let tailMatch = customTailRe ? customTailRe.exec(line) : null;
+    if (!tailMatch) {
+      tailMatch = CALLOUT_TAIL_RE.exec(line) || CALLOUT_XML_RE.exec(line);
+    }
+    let valueRegex = CALLOUT_VALUE_RE;
+
+    if (tailMatch) {
+      // Determine if XML-style
+      if (tailMatch[2].startsWith("<!--")) {
+        valueRegex = CALLOUT_XML_VALUE_RE;
+      }
+    } else {
+      // Try bare match (no comment prefix)
+      tailMatch = CALLOUT_BARE_RE.exec(line);
+      if (tailMatch) {
+        // Verify at least one <N> or <.> is present (avoid false positives)
+        if (!/<(\d+|\.)>/.test(tailMatch[2])) {
+          tailMatch = null;
+        }
+      }
+    }
+
+    if (tailMatch) {
+      // Strip the matched callout tail from the line
+      line = line.slice(0, tailMatch.index);
+      // Extract individual callout values
+      const tail = tailMatch[2];
+      valueRegex.lastIndex = 0;
+      let vm;
+      while ((vm = valueRegex.exec(tail)) !== null) {
+        const raw = vm[1];
+        const num = raw === "." ? ++autoNumber : parseInt(raw, 10);
+        callouts.push({ lineIndex: i, value: num });
+      }
+    }
+
+    cleanedLines.push(line);
+  }
+
+  return { cleanedCode: cleanedLines.join("\n"), callouts };
+}
+
+function renderCodeWithCalloutBadges(code: string, callouts: CalloutEntry[]): string {
+  if (callouts.length === 0) return escapeHtml(code);
+
+  const lines = code.split("\n");
+  const calloutsByLine = new Map<number, number[]>();
+  for (const c of callouts) {
+    if (!calloutsByLine.has(c.lineIndex)) calloutsByLine.set(c.lineIndex, []);
+    calloutsByLine.get(c.lineIndex)!.push(c.value);
+  }
+
+  return lines.map((line, i) => {
+    let html = escapeHtml(line);
+    const nums = calloutsByLine.get(i);
+    if (nums) {
+      for (const num of nums) {
+        html += ` <span class="cm-lp-conum" data-value="${num}">${num}</span>`;
+      }
+    }
+    return html;
+  }).join("\n");
+}
+
+function renderCalloutListItem(num: number, text: string): string {
+  return `<span class="cm-lp-colist-item">`
+    + `<span class="cm-lp-conum" data-value="${num}">${num}</span>`
+    + `<span class="cm-lp-colist-text">${renderInline(text)}</span>`
+    + `</span>`;
+}
+
+// =====================================================
 // Stem Block Preview Widget (cursor outside block)
 // =====================================================
 
@@ -3071,6 +3208,8 @@ class CodeBlockPreviewWidget extends WidgetType {
   constructor(
     readonly language: string,
     readonly code: string,
+    readonly rawCode: string,
+    readonly callouts: CalloutEntry[],
     readonly lineFrom: number,
     readonly blockFrom: number,
     readonly blockTo: number,
@@ -3082,7 +3221,7 @@ class CodeBlockPreviewWidget extends WidgetType {
     wrap.className = "cm-lp-codeblock";
     wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
     attachBlockModalHandlers(wrap, (view) => {
-      openCodeBlockEditorModal(view, this.language, this.code, this.blockFrom, this.blockTo, this.hadAttributeLine);
+      openCodeBlockEditorModal(view, this.language, this.rawCode, this.blockFrom, this.blockTo, this.hadAttributeLine);
     });
 
     const header = document.createElement("div");
@@ -3093,7 +3232,33 @@ class CodeBlockPreviewWidget extends WidgetType {
     const pre = document.createElement("pre");
     pre.className = "cm-lp-codeblock-pre";
     const codeEl = document.createElement("code");
-    codeEl.textContent = this.code;
+
+    if (this.callouts.length === 0) {
+      codeEl.textContent = this.code;
+    } else {
+      const lines = this.code.split("\n");
+      const calloutsByLine = new Map<number, number[]>();
+      for (const c of this.callouts) {
+        if (!calloutsByLine.has(c.lineIndex)) calloutsByLine.set(c.lineIndex, []);
+        calloutsByLine.get(c.lineIndex)!.push(c.value);
+      }
+      for (let i = 0; i < lines.length; i++) {
+        if (i > 0) codeEl.appendChild(document.createTextNode("\n"));
+        codeEl.appendChild(document.createTextNode(lines[i]));
+        const nums = calloutsByLine.get(i);
+        if (nums) {
+          for (const num of nums) {
+            codeEl.appendChild(document.createTextNode(" "));
+            const badge = document.createElement("span");
+            badge.className = "cm-lp-conum";
+            badge.dataset.value = String(num);
+            badge.textContent = String(num);
+            codeEl.appendChild(badge);
+          }
+        }
+      }
+    }
+
     pre.appendChild(codeEl);
     wrap.appendChild(pre);
 
@@ -3102,7 +3267,7 @@ class CodeBlockPreviewWidget extends WidgetType {
 
   eq(other: CodeBlockPreviewWidget): boolean {
     return this.language === other.language
-      && this.code === other.code
+      && this.rawCode === other.rawCode
       && this.lineFrom === other.lineFrom
       && this.blockFrom === other.blockFrom
       && this.blockTo === other.blockTo
@@ -4001,6 +4166,8 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
   let blockIdx = 0;
   let i = 1;
   let pendingRole: string | null = null; // tracks [.role] attribute for next line
+  let lastCodeBlockEndLine = -1; // tracks end of last code block for callout list association
+  let calloutListAutoNumber = 0; // auto-number counter for <.> in callout lists
 
   while (i <= doc.lines) {
     const block = blockIdx < blocks.length ? blocks[blockIdx] : null;
@@ -4012,6 +4179,10 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       const cursorInBlock = editorHasFocus && cursorLine >= blockStart && cursorLine <= blockEnd;
       const fromPos = doc.line(blockStart).from;
       const toPos = doc.line(blockEnd).to;
+
+      // Reset callout tracking — code block branch re-sets it below
+      lastCodeBlockEndLine = -1;
+      calloutListAutoNumber = 0;
 
       // Block-level height stabilization is intentionally disabled for content
       // blocks (sidebar, example, quote, etc.). Their raw lines naturally take
@@ -4124,18 +4295,24 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           }
         } else {
           // Preview mode: first line gets the widget, rest are hidden
-          let codeText = "";
+          let rawCode = "";
           for (let j = block.openLine + 1; j < block.closeLine; j++) {
-            if (codeText) codeText += "\n";
-            codeText += doc.line(j).text;
+            if (rawCode) rawCode += "\n";
+            rawCode += doc.line(j).text;
           }
+          const blockLineComment = block.attrLine > 0
+            ? parseLineComment(doc.line(block.attrLine).text)
+            : undefined;
+          const { cleanedCode, callouts } = processCodeCallouts(rawCode, blockLineComment);
           const firstLine = doc.line(blockStart);
           const hadAttributeLine = block.attrLine > 0;
           builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
           builder.add(firstLine.from, firstLine.to, Decoration.replace({
             widget: new CodeBlockPreviewWidget(
               block.language,
-              codeText,
+              cleanedCode,
+              rawCode,
+              callouts,
               firstLine.from,
               fromPos,
               toPos,
@@ -4151,6 +4328,9 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
              }
            }
          }
+         // Track for callout list detection (both edit and preview mode)
+         lastCodeBlockEndLine = blockEnd;
+         calloutListAutoNumber = 0;
       } else if (block.type === "table") {
         const { headers, rows } = parseTable(doc, block.openLine, block.closeLine);
 
@@ -4302,6 +4482,32 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     const line = doc.line(i);
     const text = line.text;
     const trimmedText = text.trimStart();
+
+    // Callout list detection — must immediately follow a code block
+    if (lastCodeBlockEndLine > 0) {
+      const calloutListMatch = trimmedText.match(/^<(\d+|\.)>\s+(.+)$/);
+      if (calloutListMatch) {
+        if (editorHasFocus && rawLines.has(i)) {
+          // Edit mode: show raw text
+          i++;
+          continue;
+        }
+        const rawVal = calloutListMatch[1];
+        const num = rawVal === "." ? ++calloutListAutoNumber : parseInt(rawVal, 10);
+        const calloutHtml = renderCalloutListItem(num, calloutListMatch[2]);
+        builder.add(line.from, line.to, Decoration.replace({
+          widget: new PreviewLineWidget(calloutHtml, line.from),
+        }));
+        i++;
+        continue;
+      } else if (trimmedText !== "") {
+        // Non-blank, non-callout line — reset callout tracking
+        lastCodeBlockEndLine = -1;
+        calloutListAutoNumber = 0;
+      }
+      // Blank lines: keep association alive (don't reset)
+    }
+
     const isAdmon = /^(NOTE|TIP|WARNING|CAUTION|IMPORTANT|QUESTION):\s+/.test(trimmedText);
     const isList = /^(\*{1,5}|\.{1,5})\s+/.test(trimmedText);
     const isParagraph = isParagraphLikeLine(trimmedText);
@@ -4322,15 +4528,9 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     }
 
     if (editorHasFocus && rawLines.has(i)) {
-      // Only apply height stabilization for headings — their rendered preview
-      // (large font + margins) is genuinely taller than the raw monospace text.
-      // List items and paragraphs are skipped: their raw text often wraps to
-      // MORE lines than the rendered preview, so adding padding just inflates
-      // the height and causes scroll drift.
       if (headingMatch) {
-        // Use the cached measured height if available (accurate), falling back
-        // to the mathematical estimate. The cache is now remapped through doc
-        // changes (not cleared), so it stays consistent across typing.
+        // Headings: stabilize height since rendered preview (large font + margins)
+        // is genuinely taller than the raw monospace text.
         const cachedHeight = heightCache.lineHeights.get(line.from);
         const renderedHeight = cachedHeight
           ?? estimateHeadingLineHeightPx(rawBaseHeightPx, headingMatch[1].length);
@@ -4340,6 +4540,10 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             builder.add(line.from, line.from, decoration);
           }
         }
+      } else if (isList) {
+        // Lists: apply the same padding as rendered list lines so each raw line
+        // has the same vertical height as its rendered counterpart.
+        builder.add(line.from, line.from, listLineDecoration);
       }
       pendingRole = null;
       i++;
@@ -5229,6 +5433,41 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-lp-codeblock-dropdown-item:hover": {
     background: "rgba(128,128,128,0.15)",
+  },
+
+  // Callout Badges & List
+  ".cm-lp-conum": {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#fff !important",
+    background: "rgba(0, 0, 0, 0.8)",
+    borderRadius: "50%",
+    textAlign: "center",
+    fontSize: "0.75em",
+    width: "1.67em",
+    height: "1.67em",
+    lineHeight: "1.67em",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontStyle: "normal",
+    fontWeight: "bold",
+    userSelect: "none",
+  },
+  "pre .cm-lp-conum": {
+    position: "relative",
+    top: "-0.125em",
+  },
+  ".cm-lp-colist-item": {
+    display: "inline-flex",
+    alignItems: "baseline",
+    width: "100%",
+    gap: "0.5em",
+    margin: "0",
+    boxSizing: "border-box",
+  },
+  ".cm-lp-colist-text": {
+    flex: "1",
+    minWidth: "0",
   },
 
   // Table Preview

@@ -162,7 +162,7 @@ export const asciidocKeymap: KeyBinding[] = [
   },
   {
     key: "Mod-Shift-x",
-    run: (view) => wrapSelection(view, "[line-through]#", "#"),
+    run: (view) => wrapSelection(view, "[.line-through]#", "#"),
   },
   {
     key: "Mod-.",
