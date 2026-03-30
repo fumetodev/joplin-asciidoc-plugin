@@ -333,8 +333,9 @@ function focusPreviewLine(view: EditorView, lineFrom: number) {
   const { scrollTop, scrollLeft } = view.scrollDOM;
   window.getSelection()?.removeAllRanges();
   clearPendingPreviewClick();
+  const line = view.state.doc.lineAt(lineFrom);
   view.dispatch({
-    selection: { anchor: lineFrom },
+    selection: { anchor: line.to },
   });
   view.focus();
   preserveViewportAfterUpdate(view, lineFrom, anchorTop, scrollTop, scrollLeft);

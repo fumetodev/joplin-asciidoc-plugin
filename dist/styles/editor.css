@@ -757,7 +757,7 @@ html, body {
 	--asciidoc-bg: #1e1e1e;
 	--asciidoc-fg: #d4d4d4;
 	--asciidoc-border: #444;
-	--asciidoc-toolbar-bg: #2d2d2d;
+	--asciidoc-toolbar-bg: #242424;
 	--asciidoc-btn-bg: #3c3c3c;
 	--asciidoc-btn-hover: #505050;
 	--asciidoc-btn-active: #606060;
@@ -811,6 +811,14 @@ html, body {
 	margin: 0;
 	cursor: pointer;
 	accent-color: var(--asciidoc-link, #2156a5);
+}
+
+.cm-panel.cm-search .cm-search-match-counter {
+	font-size: 12px;
+	color: var(--asciidoc-placeholder, #888);
+	white-space: nowrap;
+	min-width: 4em;
+	text-align: center;
 }
 
 .cm-panel.cm-search .cm-textfield {

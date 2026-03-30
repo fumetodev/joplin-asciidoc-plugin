@@ -15,6 +15,8 @@ const tabs: { id: TabId; label: string }[] = [
 export function buildRibbon(container: HTMLElement, editorOptions?: EditorPanelOptions, initialMargin?: number, initialZoom?: number): void {
   let activeTab: TabId = "text";
   let currentCleanup: (() => void) | null = null;
+  let currentZoom = initialZoom || 100;
+  let currentMargin = initialMargin;
 
   const ribbon = document.createElement("div");
   ribbon.className = "ribbon";
@@ -70,16 +72,29 @@ export function buildRibbon(container: HTMLElement, editorOptions?: EditorPanelO
       case "formatting":
         result = buildFormattingPanel();
         break;
-      case "editor":
-        result = { element: buildEditorPanel(editorOptions || {
+      case "editor": {
+        const opts = editorOptions || {
           onToggleLineNumbers: () => {},
           onToggleBlockShading: () => {},
           onToggleOverlayEditing: () => {},
           onToggleSpellCheck: () => {},
           onMarginChange: () => {},
           onZoomChange: () => {},
-        }, initialMargin, initialZoom) };
+        };
+        const wrappedOpts = {
+          ...opts,
+          onZoomChange: (percent: number) => {
+            currentZoom = percent;
+            opts.onZoomChange(percent);
+          },
+          onMarginChange: (value: number) => {
+            currentMargin = value;
+            opts.onMarginChange(value);
+          },
+        };
+        result = { element: buildEditorPanel(wrappedOpts, currentMargin, currentZoom) };
         break;
+      }
       default:
         return;
     }

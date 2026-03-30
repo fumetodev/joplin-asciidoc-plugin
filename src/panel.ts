@@ -4,7 +4,7 @@
  * with always-on live-preview decorations.
  */
 
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder } from "@codemirror/view";
+import { EditorView, ViewPlugin, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder } from "@codemirror/view";
 import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches, openSearchPanel, closeSearchPanel, searchPanelOpen } from "@codemirror/search";
@@ -385,8 +385,156 @@ function createEditor(container: HTMLElement, content: string) {
           }
           return true;
         }},
+        // Forward-delete (delete character ahead of cursor)
+        { key: "Mod-Shift-d", run: (view) => {
+          const head = view.state.selection.main.head;
+          if (head < view.state.doc.length) {
+            view.dispatch({ changes: { from: head, to: head + 1 } });
+          }
+          return true;
+        }},
+        // Transpose characters around cursor
+        { key: "Mod-Shift-t", run: (view) => {
+          const head = view.state.selection.main.head;
+          const line = view.state.doc.lineAt(head);
+          if (head > line.from && head < line.to) {
+            const before = view.state.doc.sliceString(head - 1, head);
+            const after = view.state.doc.sliceString(head, head + 1);
+            view.dispatch({
+              changes: { from: head - 1, to: head + 1, insert: after + before },
+              selection: { anchor: head + 1 },
+            });
+          } else if (head === line.to && head - 2 >= line.from) {
+            // At end of line: swap the two characters before cursor
+            const a = view.state.doc.sliceString(head - 2, head - 1);
+            const b = view.state.doc.sliceString(head - 1, head);
+            view.dispatch({
+              changes: { from: head - 2, to: head, insert: b + a },
+            });
+          }
+          return true;
+        }},
+        // Open new line below cursor
+        { key: "Mod-Shift-o", run: (view) => {
+          const line = view.state.doc.lineAt(view.state.selection.main.head);
+          view.dispatch({
+            changes: { from: line.to, insert: "\n" },
+            selection: { anchor: line.to + 1 },
+          });
+          return true;
+        }},
       ])),
       livePreview(), // Always on
+      // Enhance CM6 search panel with match counter and remove "all" button
+      ViewPlugin.fromClass(class {
+        private counterEl: HTMLElement | null = null;
+        private panelOpen = false;
+        private boundInputHandler: (() => void) | null = null;
+
+        constructor(private view: EditorView) {}
+
+        update() {
+          const panel = this.view.dom.querySelector(".cm-panel.cm-search") as HTMLElement | null;
+          if (!panel) {
+            this.counterEl = null;
+            this.panelOpen = false;
+            this.boundInputHandler = null;
+            return;
+          }
+
+          // One-time setup when panel first appears
+          if (!this.panelOpen) {
+            this.panelOpen = true;
+
+            // Remove "all" button
+            for (const btn of panel.querySelectorAll<HTMLButtonElement>(".cm-button")) {
+              if (btn.textContent?.trim().toLowerCase() === "all") {
+                btn.remove();
+                break;
+              }
+            }
+
+            // Create and inject counter element
+            const searchInput = panel.querySelector<HTMLInputElement>(".cm-textfield");
+            if (searchInput) {
+              this.counterEl = document.createElement("span");
+              this.counterEl.className = "cm-search-match-counter";
+              searchInput.parentNode!.insertBefore(this.counterEl, searchInput.nextSibling);
+
+              this.boundInputHandler = () => this.updateCounter();
+              searchInput.addEventListener("input", this.boundInputHandler);
+              // Also listen for checkbox changes (case, regex, by word)
+              for (const cb of panel.querySelectorAll<HTMLInputElement>("input[type=checkbox]")) {
+                cb.addEventListener("change", this.boundInputHandler);
+              }
+            }
+          }
+
+          this.updateCounter();
+        }
+
+        updateCounter() {
+          if (!this.counterEl) return;
+          const panel = this.view.dom.querySelector(".cm-panel.cm-search");
+          if (!panel) return;
+          const searchInput = panel.querySelector<HTMLInputElement>(".cm-textfield");
+          const query = searchInput?.value || "";
+
+          if (!query) {
+            this.counterEl.textContent = "";
+            return;
+          }
+
+          // Read checkbox states
+          let caseSensitive = false;
+          let isRegex = false;
+          for (const label of panel.querySelectorAll("label")) {
+            const text = label.textContent?.toLowerCase() || "";
+            const cb = label.querySelector<HTMLInputElement>("input[type=checkbox]");
+            if (!cb) continue;
+            if (text.includes("case")) caseSensitive = cb.checked;
+            if (text.includes("regexp") || text.includes("regex")) isRegex = cb.checked;
+          }
+
+          // Count matches
+          const doc = this.view.state.doc.toString();
+          let matchPositions: number[] = [];
+          try {
+            if (isRegex) {
+              const re = new RegExp(query, caseSensitive ? "g" : "gi");
+              let m;
+              while ((m = re.exec(doc)) !== null) {
+                matchPositions.push(m.index);
+                if (m[0].length === 0) re.lastIndex++;
+              }
+            } else {
+              const searchDoc = caseSensitive ? doc : doc.toLowerCase();
+              const searchQuery = caseSensitive ? query : query.toLowerCase();
+              let pos = 0;
+              while ((pos = searchDoc.indexOf(searchQuery, pos)) !== -1) {
+                matchPositions.push(pos);
+                pos += searchQuery.length || 1;
+              }
+            }
+          } catch {
+            matchPositions = [];
+          }
+
+          const count = matchPositions.length;
+          const cursor = this.view.state.selection.main.from;
+          let idx = 0;
+          if (count > 0) {
+            for (let i = 0; i < count; i++) {
+              if (matchPositions[i] <= cursor) idx = i + 1;
+            }
+            if (idx === 0) idx = 1;
+          }
+
+          this.counterEl.textContent = count > 0 ? `${idx} / ${count}` : "0 / 0";
+        }
+
+        destroy() {}
+      }),
       // Auto-pair quotes/brackets around selections
       EditorView.inputHandler.of((view, from, to, text) => {
         const pairs: Record<string, string> = { '"': '"', "'": "'", '(': ')', '[': ']', '{': '}' };
