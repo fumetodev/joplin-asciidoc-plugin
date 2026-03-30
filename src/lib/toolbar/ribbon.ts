@@ -79,6 +79,7 @@ export function buildRibbon(container: HTMLElement, editorOptions?: EditorPanelO
           onToggleOverlayEditing: () => {},
           onToggleSpellCheck: () => {},
           onToggleFullscreen: () => {},
+          onToggleAutoHide: () => {},
           onMarginChange: () => {},
           onZoomChange: () => {},
         };

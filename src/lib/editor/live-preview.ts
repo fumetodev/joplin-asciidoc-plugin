@@ -5767,8 +5767,8 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lp-mark": { backgroundColor: "#fff176", color: "#000", padding: "0.1em 0.2em", borderRadius: "2px" },
   ".cm-lp-kbd": { display: "inline-block", background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "0.143em 0.429em", border: "1px solid var(--asciidoc-border, #ccc)", borderRadius: "3px", fontSize: "0.85em", fontFamily: "'JetBrains Mono', Consolas, monospace", boxShadow: "0 1px 0 var(--asciidoc-border, #ccc)" },
   ".cm-lp-btn": { display: "inline-block", background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "0.143em 0.714em", border: "1px solid var(--asciidoc-border, #bbb)", borderRadius: "4px", fontSize: "0.9em", fontWeight: "600", cursor: "default" },
-  ".cm-lp-menu": { fontSize: "0.9em", fontFamily: "inherit" },
-  ".cm-lp-menu-sep": { color: "var(--asciidoc-placeholder, #888)", margin: "0 2px" },
+  ".cm-lp-menu": { fontSize: "0.9em", fontFamily: "inherit", fontWeight: "bold" },
+  ".cm-lp-menu-sep": { color: "var(--asciidoc-fg, #ccc)", margin: "0 4px", fontSize: "1.35em", fontWeight: "normal", opacity: "0.7" },
   ".cm-lp-footnote": { color: "var(--asciidoc-link, #2156a5)", cursor: "pointer", fontSize: "0.8em" },
   ".cm-lp-footnote:hover": { textDecoration: "underline" },
   ".cm-lp-footnote-popup": {

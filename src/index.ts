@@ -1215,6 +1215,48 @@ joplin.plugins.register({
               return { status: "error" };
             }
           }
+
+          // Fullscreen mode — toggle sidebars
+          if (msg.type === "setFullscreenMode") {
+            try {
+              const layout = await (joplin.settings as any).globalValue("ui.layout");
+              if (msg.enabled) {
+                // Store current visibility before hiding
+                let sideBarVisible = true;
+                let noteListVisible = true;
+                if (layout) {
+                  const findVisible = (items: any[], key: string): boolean | undefined => {
+                    for (const item of items) {
+                      if (item.key === key) return item.visible !== false;
+                      if (item.children) {
+                        const found = findVisible(item.children, key);
+                        if (found !== undefined) return found;
+                      }
+                    }
+                    return undefined;
+                  };
+                  const layoutChildren = layout.children || [layout];
+                  sideBarVisible = findVisible(layoutChildren, "sideBar") ?? true;
+                  noteListVisible = findVisible(layoutChildren, "noteList") ?? true;
+                }
+                (globalThis as any).__asciidocFullscreenState = { sideBarVisible, noteListVisible };
+                if (sideBarVisible) await joplin.commands.execute("toggleSideBar");
+                if (noteListVisible) await joplin.commands.execute("toggleNoteList");
+              } else {
+                // Restore previous visibility
+                const state = (globalThis as any).__asciidocFullscreenState;
+                if (state) {
+                  if (state.sideBarVisible) await joplin.commands.execute("toggleSideBar");
+                  if (state.noteListVisible) await joplin.commands.execute("toggleNoteList");
+                  delete (globalThis as any).__asciidocFullscreenState;
+                }
+              }
+              return { status: "ok" };
+            } catch (e) {
+              console.error("[AsciiDoc] Failed to toggle fullscreen:", e);
+              return { status: "error" };
+            }
+          }
         });
       },
 

@@ -320,6 +320,8 @@ export const highlightColors = [
   { name: "Pink", value: "pink", hex: "#f48fb1" },
   { name: "Orange", value: "orange", hex: "#ffcc80" },
   { name: "Silver", value: "silver", hex: "#cfd8dc" },
+  { name: "Red", value: "red", hex: "#ef9a9a" },
+  { name: "Purple", value: "purple", hex: "#ce93d8" },
 ];
 
 export function handleFontColor(color: string) {

@@ -16,7 +16,7 @@ import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
 import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck, setShowPluralSingular } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
 import { isSmartQuotesEnabled } from "./lib/toolbar/panels/formatting-panel";
-import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary, getSpellcheckSettings } from "./lib/ipc";
+import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary, getSpellcheckSettings, setFullscreenMode } from "./lib/ipc";
 import { setMermaidTheme } from "./lib/utils/mermaid-render";
 
 declare const webviewApi: {
@@ -370,6 +370,64 @@ function updateSpellcheck() {
 
 let isFullscreen = false; // never persisted — always starts off
 const FULLSCREEN_EXTRA_MARGIN = 200;
+let autoHideToolbar = localStorage.getItem("asciidoc-autohide-toolbar") === "true";
+
+let autoHideTrigger: HTMLElement | null = null;
+let autoHideTimeout: any = null;
+
+function setAutoHideToolbar(enabled: boolean) {
+  autoHideToolbar = enabled;
+  const root = document.getElementById("asciidoc-editor-root");
+  if (!root) return;
+  root.classList.toggle("autohide-toolbar", enabled);
+
+  const ribbonContainer = document.getElementById("ribbon-container");
+  if (!ribbonContainer) return;
+
+  // Clean up previous trigger zone
+  if (autoHideTrigger) {
+    autoHideTrigger.remove();
+    autoHideTrigger = null;
+  }
+
+  if (!enabled) {
+    ribbonContainer.classList.remove("autohide-visible");
+    return;
+  }
+
+  // Create an invisible trigger zone at the very top of the root
+  const trigger = document.createElement("div");
+  trigger.style.cssText = "position:absolute;top:0;left:0;right:0;height:10px;z-index:101";
+  root.appendChild(trigger);
+  autoHideTrigger = trigger;
+
+  function showRibbon() {
+    clearTimeout(autoHideTimeout);
+    ribbonContainer!.classList.add("autohide-visible");
+  }
+
+  function hideRibbon() {
+    clearTimeout(autoHideTimeout);
+    autoHideTimeout = setTimeout(() => {
+      ribbonContainer!.classList.remove("autohide-visible");
+    }, 300);
+  }
+
+  trigger.addEventListener("mouseenter", showRibbon);
+  ribbonContainer.addEventListener("mouseenter", showRibbon);
+  ribbonContainer.addEventListener("mouseleave", hideRibbon);
+  // Keep ribbon visible when pointer is above it (in the title bar area)
+  trigger.addEventListener("mouseleave", (e) => {
+    // Only hide if pointer moved downward (into editor), not upward (into title bar)
+    const rect = trigger.getBoundingClientRect();
+    if ((e as MouseEvent).clientY > rect.bottom) {
+      // Pointer moved down — check if it entered the ribbon
+      // Give a brief delay so mouseenter on ribbon can cancel
+      hideRibbon();
+    }
+    // If pointer moved up (into title bar), keep ribbon visible
+  });
+}
 
 function setFullscreen(enabled: boolean) {
   isFullscreen = enabled;
@@ -382,6 +440,8 @@ function setFullscreen(enabled: boolean) {
     root.classList.remove("fullscreen-mode");
     document.documentElement.style.setProperty("--fullscreen-margin", "0px");
   }
+  // Toggle Joplin sidebars via IPC
+  setFullscreenMode(enabled).catch(e => console.error("[panel] Failed to toggle fullscreen sidebars:", e));
   // Sync the editor panel checkbox if it's currently visible
   root.querySelectorAll<HTMLInputElement>(".ribbon-panel .editor-toggle-label input[type=checkbox]").forEach(checkbox => {
     const label = checkbox.nextElementSibling?.textContent;
@@ -767,6 +827,9 @@ function init() {
   const root = document.getElementById("asciidoc-editor-root");
   if (!root) return;
 
+  // Restore persisted auto-hide toolbar
+  if (autoHideToolbar) setAutoHideToolbar(true);
+
   // Restore persisted margin
   const savedMargin = parseInt(localStorage.getItem("asciidoc-editor-margin") || "0", 10);
   if (savedMargin > 0) {
@@ -795,6 +858,9 @@ function init() {
       },
       onToggleFullscreen(enabled: boolean) {
         setFullscreen(enabled);
+      },
+      onToggleAutoHide(enabled: boolean) {
+        setAutoHideToolbar(enabled);
       },
       onMarginChange(px: number) {
         document.documentElement.style.setProperty("--content-margin", `${px}px`);

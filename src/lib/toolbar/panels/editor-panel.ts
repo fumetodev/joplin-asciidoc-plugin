@@ -4,6 +4,7 @@ export interface EditorPanelOptions {
   onToggleOverlayEditing: (show: boolean) => void;
   onToggleSpellCheck: (enabled: boolean) => void;
   onToggleFullscreen: (enabled: boolean) => void;
+  onToggleAutoHide: (enabled: boolean) => void;
   onMarginChange: (px: number) => void;
   onZoomChange: (percent: number) => void;
 }
@@ -127,6 +128,22 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   fullscreenLabel.appendChild(fullscreenCb);
   fullscreenLabel.appendChild(fullscreenSpan);
   panelToggles.appendChild(fullscreenLabel);
+
+  const autoHideLabel = document.createElement("label");
+  autoHideLabel.className = "editor-toggle-label";
+  const autoHideCb = document.createElement("input");
+  autoHideCb.type = "checkbox";
+  const savedAutoHide = localStorage.getItem("asciidoc-autohide-toolbar");
+  autoHideCb.checked = savedAutoHide === "true";
+  autoHideCb.addEventListener("input", () => {
+    options.onToggleAutoHide(autoHideCb.checked);
+    localStorage.setItem("asciidoc-autohide-toolbar", String(autoHideCb.checked));
+  });
+  const autoHideSpan = document.createElement("span");
+  autoHideSpan.textContent = "Auto-Hide Toolbar";
+  autoHideLabel.appendChild(autoHideCb);
+  autoHideLabel.appendChild(autoHideSpan);
+  panelToggles.appendChild(autoHideLabel);
 
   wrapper.appendChild(createRibbonSection("Panel", panelToggles));
 

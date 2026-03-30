@@ -69,3 +69,7 @@ export async function getPersonalDictionary(): Promise<{ words: string[] }> {
 export async function addWordToPersonalDictionary(word: string): Promise<void> {
   return webviewApi.postMessage({ type: "addWordToPersonalDictionary", word });
 }
+
+export async function setFullscreenMode(enabled: boolean): Promise<void> {
+  return webviewApi.postMessage({ type: "setFullscreenMode", enabled });
+}

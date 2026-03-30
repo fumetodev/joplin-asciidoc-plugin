@@ -34,13 +34,14 @@ interface DropdownState {
   menu: boolean;
   footnote: boolean;
   anchor: boolean;
+  keyboard: boolean;
 }
 
 export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => void } {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
 
-  const state: DropdownState = { quotes: false, passthrough: false, menu: false, footnote: false, anchor: false };
+  const state: DropdownState = { quotes: false, passthrough: false, menu: false, footnote: false, anchor: false, keyboard: false };
   const wrapEls: Map<keyof DropdownState, HTMLElement> = new Map();
 
   function closeAll() {
@@ -76,13 +77,25 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
   const simpleRow = document.createElement("div");
   simpleRow.className = "ribbon-row";
 
-  // Keyboard — wraps selection
+  // Keyboard — split button with preset dropdown
+  const kbdWrap = document.createElement("div");
+  kbdWrap.className = "split-btn-wrap";
+  wrapEls.set("keyboard", kbdWrap);
+
   const kbdBtn = document.createElement("button");
   kbdBtn.className = "ribbon-labeled-btn";
   kbdBtn.title = "Keyboard (kbd:[...])";
   kbdBtn.innerHTML = `<span class="rlb-label">Keyboard</span>`;
   kbdBtn.addEventListener("click", () => wrapSelection("kbd:[", "]"));
-  simpleRow.appendChild(kbdBtn);
+
+  const kbdArrow = document.createElement("button");
+  kbdArrow.className = "split-arrow";
+  kbdArrow.innerHTML = ARROW_SVG;
+  kbdArrow.addEventListener("click", (e) => { e.stopPropagation(); toggle("keyboard"); });
+
+  kbdWrap.appendChild(kbdBtn);
+  kbdWrap.appendChild(kbdArrow);
+  simpleRow.appendChild(kbdWrap);
 
   // Button — wraps selection
   const btnBtn = document.createElement("button");
@@ -259,6 +272,7 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
       case "menu": buildMenuDropdown(); break;
       case "footnote": buildFootnoteDropdown(); break;
       case "anchor": buildAnchorDropdown(); break;
+      case "keyboard": buildKeyboardDropdown(); break;
     }
   }
 
@@ -569,6 +583,48 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
     anchorWrap.appendChild(dd);
     positionDropdown(dd);
     idInput.focus();
+  }
+
+  function buildKeyboardDropdown() {
+    const dd = document.createElement("div");
+    dd.className = "split-dropdown open";
+    dd.setAttribute("role", "menu");
+    dd.style.maxHeight = "320px";
+    dd.style.overflowY = "auto";
+
+    const groups: { label: string; keys: string[] }[] = [
+      { label: "Modifiers", keys: ["Ctrl", "Shift", "Alt", "Meta", "Cmd", "Opt", "Fn"] },
+      { label: "Navigation", keys: ["Enter", "Esc", "Tab", "Space", "Backspace", "Delete", "Insert"] },
+      { label: "Arrows", keys: ["\u2190", "\u2191", "\u2192", "\u2193", "Home", "End", "Page Up", "Page Down"] },
+      { label: "Function", keys: ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"] },
+      { label: "Punctuation", keys: ["+", "-", "=", "[", "]", "\\", "/", ";", "'", ",", ".", "`", "~"] },
+      { label: "Common Combos", keys: ["Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+S", "Ctrl+A", "Ctrl+F", "Ctrl+Shift+F", "Alt+Tab"] },
+    ];
+
+    for (const group of groups) {
+      const groupLabel = document.createElement("div");
+      groupLabel.style.cssText = "font-size:10px;font-weight:600;color:var(--asciidoc-placeholder,#888);padding:6px 10px 2px;text-transform:uppercase;letter-spacing:0.5px";
+      groupLabel.textContent = group.label;
+      dd.appendChild(groupLabel);
+
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;flex-wrap:wrap;gap:3px;padding:2px 8px 4px";
+      for (const key of group.keys) {
+        const btn = document.createElement("button");
+        btn.className = "split-dropdown-item";
+        btn.style.cssText = "padding:3px 8px;font-size:12px;font-family:monospace;min-width:0;flex:0 0 auto";
+        btn.textContent = key;
+        btn.addEventListener("click", () => {
+          insertText(`kbd:[${key}]`);
+          closeAll();
+        });
+        row.appendChild(btn);
+      }
+      dd.appendChild(row);
+    }
+
+    kbdWrap.appendChild(dd);
+    positionDropdown(dd);
   }
 
   return {
