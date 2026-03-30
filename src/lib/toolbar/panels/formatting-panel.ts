@@ -2,6 +2,10 @@ import { wrapSelection, insertText, prefixLine, suffixLine, positionDropdown } f
 
 const ARROW_SVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`;
 
+// Smart Quotes state — persisted via localStorage, read by panel.ts input handler
+let smartQuotesEnabled = localStorage.getItem("asciidoc-smart-quotes") === "true";
+export function isSmartQuotesEnabled(): boolean { return smartQuotesEnabled; }
+
 /** Helper: creates a `.ribbon-section` wrapper with label and child controls. */
 function createRibbonSection(label: string, ...children: HTMLElement[]): HTMLElement {
   const section = document.createElement("div");
@@ -245,6 +249,31 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
       item.addEventListener("click", () => { wrapSelection(opt.before, opt.after); closeAll(); });
       dd.appendChild(item);
     }
+
+    // Smart Quotes toggle
+    const sep = document.createElement("div");
+    sep.style.cssText = "border-top:1px solid var(--asciidoc-border,#ddd);margin:4px 0";
+    dd.appendChild(sep);
+
+    const toggleItem = document.createElement("label");
+    toggleItem.className = "split-dropdown-item";
+    toggleItem.style.cssText = "display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = smartQuotesEnabled;
+    cb.style.cssText = "width:14px;height:14px;margin:0;cursor:pointer;accent-color:var(--asciidoc-link,#2156a5)";
+    cb.addEventListener("change", () => {
+      smartQuotesEnabled = cb.checked;
+      localStorage.setItem("asciidoc-smart-quotes", String(cb.checked));
+    });
+
+    const toggleLabel = document.createElement("span");
+    toggleLabel.textContent = "\u201CSmart Quotes\u201D";
+
+    toggleItem.appendChild(cb);
+    toggleItem.appendChild(toggleLabel);
+    dd.appendChild(toggleItem);
 
     quotesWrap.appendChild(dd);
     positionDropdown(dd);

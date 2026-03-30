@@ -15,6 +15,7 @@ import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingE
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
 import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck, setShowPluralSingular } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
+import { isSmartQuotesEnabled } from "./lib/toolbar/panels/formatting-panel";
 import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary, getSpellcheckSettings } from "./lib/ipc";
 import { setMermaidTheme } from "./lib/utils/mermaid-render";
 
@@ -535,8 +536,68 @@ function createEditor(container: HTMLElement, content: string) {
 
         destroy() {}
       }),
+      // Smart Quotes: convert straight quotes to curly quotes, with prime/double-prime support
+      EditorView.inputHandler.of((view, from, _to, text) => {
+        if (!isSmartQuotesEnabled()) return false;
+        if (text !== '"' && text !== "'") return false;
+        const sel = view.state.selection.main;
+        if (sel.from !== sel.to) return false; // don't interfere with selection wrapping
+
+        const before = from > 0 ? view.state.doc.sliceString(from - 1, from) : "";
+        const after = from < view.state.doc.length ? view.state.doc.sliceString(from, from + 1) : "";
+
+        // Override: pressing quote right after a prime/double-prime reverts it
+        if (text === "'" && before === "\u2032") {
+          view.dispatch({
+            changes: { from: from - 1, to: from, insert: "'" },
+          });
+          return true;
+        }
+        if (text === '"' && before === "\u2033") {
+          view.dispatch({
+            changes: { from: from - 1, to: from, insert: '"' },
+          });
+          return true;
+        }
+
+        // Single prime: ' after a digit, with no letter immediately following
+        if (text === "'" && /\d/.test(before) && (after === "" || !/[a-zA-Z]/.test(after))) {
+          view.dispatch({
+            changes: { from, to: from, insert: "\u2032" },
+            selection: { anchor: from + 1 },
+          });
+          return true;
+        }
+
+        // Double prime: " after a digit, only if a prime precedes the digits
+        if (text === '"' && /\d/.test(before)) {
+          const lookback = view.state.doc.sliceString(Math.max(0, from - 20), from);
+          if (/\u2032\d+$/.test(lookback)) {
+            view.dispatch({
+              changes: { from, to: from, insert: "\u2033" },
+              selection: { anchor: from + 1 },
+            });
+            return true;
+          }
+        }
+
+        // Standard curly quotes: open vs close based on preceding character
+        const isOpen = !before || /[\s(\[{]/.test(before);
+        let replacement: string;
+        if (text === '"') {
+          replacement = isOpen ? "\u201C" : "\u201D";
+        } else {
+          replacement = isOpen ? "\u2018" : "\u2019";
+        }
+
+        view.dispatch({
+          changes: { from, to: from, insert: replacement },
+          selection: { anchor: from + replacement.length },
+        });
+        return true;
+      }),
       // Auto-pair quotes/brackets around selections
-      EditorView.inputHandler.of((view, from, to, text) => {
+      EditorView.inputHandler.of((view, from, _to, text) => {
         const pairs: Record<string, string> = { '"': '"', "'": "'", '(': ')', '[': ']', '{': '}' };
         const closing = pairs[text];
         if (!closing) return false;
