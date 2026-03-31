@@ -1257,6 +1257,11 @@ joplin.plugins.register({
               return { status: "error" };
             }
           }
+
+          // Convert Markdown to AsciiDoc (for paste conversion)
+          if (msg.type === "convertMarkdownPaste") {
+            return { asciidoc: convertMarkdownToAsciidoc(msg.markdown || "") };
+          }
         });
       },
 

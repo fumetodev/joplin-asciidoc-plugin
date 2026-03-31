@@ -11,12 +11,12 @@ import { searchKeymap, highlightSelectionMatches, openSearchPanel, closeSearchPa
 import { bracketMatching } from "@codemirror/language";
 import { asciidocLanguage } from "./lib/editor/asciidoc-language";
 import { asciidocKeymap } from "./lib/editor/keybindings";
-import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled } from "./lib/editor/live-preview";
+import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled, renderAsPlainText } from "./lib/editor/live-preview";
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
 import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck, setShowPluralSingular } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
 import { isSmartQuotesEnabled } from "./lib/toolbar/panels/formatting-panel";
-import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary, getSpellcheckSettings, setFullscreenMode } from "./lib/ipc";
+import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary, getSpellcheckSettings, setFullscreenMode, convertMarkdownPaste } from "./lib/ipc";
 import { setMermaidTheme } from "./lib/utils/mermaid-render";
 
 declare const webviewApi: {
@@ -545,6 +545,20 @@ function createEditor(container: HTMLElement, content: string) {
           return true;
         }},
       ])),
+      // Prevent right-click from losing selection (so context menu works on raw text)
+      EditorView.domEventHandlers({
+        mousedown(event: MouseEvent, view: EditorView) {
+          if (event.button === 2) {
+            const sel = view.state.selection.main;
+            if (sel.from !== sel.to) {
+              // Right-click with active selection — prevent CM6 from moving cursor
+              event.preventDefault();
+              return true;
+            }
+          }
+          return false;
+        },
+      }),
       livePreview(), // Always on
       // Enhance CM6 search panel with match counter and remove "all" button
       ViewPlugin.fromClass(class {
@@ -823,6 +837,138 @@ function applyZoom(percent: number) {
   });
 }
 
+// =====================================================
+// Custom right-click context menu
+// =====================================================
+
+let clipboardMenu: HTMLElement | null = null;
+
+function dismissClipboardMenu() {
+  if (clipboardMenu) {
+    clipboardMenu.remove();
+    clipboardMenu = null;
+  }
+}
+
+async function pasteAsConverted(view: EditorView) {
+  const clipText = await navigator.clipboard.readText();
+  if (!clipText) return;
+  const { asciidoc } = await convertMarkdownPaste(clipText);
+  const { from, to } = view.state.selection.main;
+  view.dispatch({ changes: { from, to, insert: asciidoc } });
+}
+
+function showClipboardContextMenu(view: EditorView, event: MouseEvent) {
+  dismissClipboardMenu();
+
+  // Capture selection state NOW — before any focus changes can lose it
+  const sel = view.state.selection.main;
+  const hasSelection = sel.from !== sel.to;
+  const selFrom = sel.from;
+  const selTo = sel.to;
+  const selectedText = hasSelection ? view.state.sliceDoc(selFrom, selTo) : "";
+
+  const menu = document.createElement("div");
+  menu.className = "spell-context-menu";
+
+  function addItem(label: string, enabled: boolean, action: () => void) {
+    const el = document.createElement("div");
+    el.className = "spell-context-menu-item";
+    el.textContent = label;
+    if (!enabled) {
+      el.style.opacity = "0.4";
+      el.style.pointerEvents = "none";
+    }
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      action();
+      dismissClipboardMenu();
+      view.focus();
+    });
+    menu.appendChild(el);
+  }
+
+  function addSeparator() {
+    const sep = document.createElement("div");
+    sep.className = "spell-context-menu-separator";
+    menu.appendChild(sep);
+  }
+
+  // ── Cut section ──
+  addItem("Cut", hasSelection, () => {
+    navigator.clipboard.writeText(selectedText);
+    view.dispatch({ changes: { from: selFrom, to: selTo, insert: "" } });
+  });
+  addItem("Cut as AsciiDoc Text", hasSelection, () => {
+    navigator.clipboard.writeText(renderAsPlainText(selectedText));
+    view.dispatch({ changes: { from: selFrom, to: selTo, insert: "" } });
+  });
+
+  addSeparator();
+
+  // ── Copy section ──
+  addItem("Copy", hasSelection, () => {
+    navigator.clipboard.writeText(selectedText);
+  });
+  addItem("Copy as AsciiDoc Text", hasSelection, () => {
+    navigator.clipboard.writeText(renderAsPlainText(selectedText));
+  });
+
+  addSeparator();
+
+  // ── Paste section ──
+  addItem("Paste", true, async () => {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      const pos = view.state.selection.main;
+      view.dispatch({ changes: { from: pos.from, to: pos.to, insert: text } });
+    }
+  });
+  addItem("Convert from Markdown & Paste", true, () => pasteAsConverted(view));
+
+  addSeparator();
+
+  // ── Select All ──
+  addItem("Select All", true, () => {
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+  });
+
+  // Position menu
+  menu.style.position = "fixed";
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
+
+  document.body.appendChild(menu);
+  clipboardMenu = menu;
+
+  // Adjust position if menu overflows viewport
+  requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 4}px`;
+    if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 4}px`;
+  });
+
+  // Dismiss on click outside or Escape
+  const dismissHandler = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node)) {
+      dismissClipboardMenu();
+      document.removeEventListener("mousedown", dismissHandler, true);
+      document.removeEventListener("keydown", escHandler, true);
+    }
+  };
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      dismissClipboardMenu();
+      document.removeEventListener("mousedown", dismissHandler, true);
+      document.removeEventListener("keydown", escHandler, true);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener("mousedown", dismissHandler, true);
+    document.addEventListener("keydown", escHandler, true);
+  }, 0);
+}
+
 function init() {
   const root = document.getElementById("asciidoc-editor-root");
   if (!root) return;
@@ -929,6 +1075,16 @@ function init() {
   window.addEventListener("open-search", () => {
     if (editorView) openSearchPanel(editorView);
   });
+
+  // Custom right-click context menu
+  const editorPaneEl = document.getElementById("editor-pane");
+  if (editorPaneEl) {
+    editorPaneEl.addEventListener("contextmenu", (e) => {
+      if (e.defaultPrevented) return; // let spellcheck handle its own menu
+      e.preventDefault();
+      if (editorView) showClipboardContextMenu(editorView, e);
+    });
+  }
 
   // Event listeners
   window.addEventListener("editor-command", handleEditorCommand);

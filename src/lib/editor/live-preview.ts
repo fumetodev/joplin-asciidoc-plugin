@@ -2085,6 +2085,10 @@ function editorHasActiveFocus(view: EditorView): boolean {
   const searchPanelOpen = view.dom.querySelector(".cm-panel.cm-search") != null;
   if (searchPanelOpen) return true;
 
+  // If a context menu is open, treat as focused to preserve raw text display
+  const contextMenuOpen = document.querySelector(".spell-context-menu") != null;
+  if (contextMenuOpen) return true;
+
   if (!view.hasFocus) return false;
 
   const root = view.dom.getRootNode();
@@ -6677,6 +6681,16 @@ const xrefClickHandler = EditorView.domEventHandlers({
     return false;
   },
 });
+
+export function renderAsPlainText(rawText: string): string {
+  return rawText.split("\n").map(line => {
+    const html = renderInline(line);
+    return html.replace(/<[^>]*>/g, "")
+      .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+      .replace(/&#(\d+);/g, (_m, n) => String.fromCharCode(parseInt(n)));
+  }).join("\n");
+}
 
 export function livePreview() {
   return [
