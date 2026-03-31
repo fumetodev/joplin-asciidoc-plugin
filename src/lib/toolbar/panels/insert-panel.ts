@@ -111,7 +111,7 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
     const anyOpen = Object.values(state).some(Boolean);
     if (anyOpen) closeAll();
   }
-  window.addEventListener("click", handleWindowClick);
+  window.addEventListener("mousedown", handleWindowClick, true);
 
   // -----------------------------------------------------------------------
   // Form state (closure variables)
@@ -1249,7 +1249,7 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
   return {
     element: wrapper,
     cleanup: () => {
-      window.removeEventListener("click", handleWindowClick);
+      window.removeEventListener("mousedown", handleWindowClick, true);
     },
   };
 }

@@ -230,12 +230,12 @@ export function buildTextPanel(): { element: HTMLElement; cleanup: () => void } 
     }
   }
 
-  window.addEventListener("click", handleWindowClick);
+  window.addEventListener("mousedown", handleWindowClick, true);
 
   return {
     element: wrapper,
     cleanup: () => {
-      window.removeEventListener("click", handleWindowClick);
+      window.removeEventListener("mousedown", handleWindowClick, true);
     },
   };
 }

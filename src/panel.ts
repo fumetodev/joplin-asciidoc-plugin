@@ -470,6 +470,7 @@ function createEditor(container: HTMLElement, content: string) {
       bracketMatching(),
       history(),
       highlightSelectionMatches(),
+      EditorState.phrases.of({ regexp: "RegExp" }),
       placeholder("Write AsciiDoc here..."),
       asciidocLanguage(),
       spellcheckCompartment.of(spellcheckEnabled ? spellcheckExtension() : []),

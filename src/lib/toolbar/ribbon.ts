@@ -8,7 +8,7 @@ type TabId = "text" | "insert" | "formatting" | "editor";
 const tabs: { id: TabId; label: string }[] = [
   { id: "text", label: "Text" },
   { id: "insert", label: "Insert" },
-  { id: "formatting", label: "Markup" },
+  { id: "formatting", label: "Advanced" },
   { id: "editor", label: "Editor" },
 ];
 

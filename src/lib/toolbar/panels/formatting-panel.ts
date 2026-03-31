@@ -68,7 +68,7 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
     if (target?.closest?.(".split-btn-wrap")) return;
     if (Object.values(state).some(Boolean)) closeAll();
   }
-  window.addEventListener("click", handleWindowClick);
+  window.addEventListener("mousedown", handleWindowClick, true);
 
   // ---------------------------------------------------------------
   // Simple buttons section (Keyboard, Button, Comment)
@@ -630,7 +630,7 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
   return {
     element: wrapper,
     cleanup: () => {
-      window.removeEventListener("click", handleWindowClick);
+      window.removeEventListener("mousedown", handleWindowClick, true);
     },
   };
 }
