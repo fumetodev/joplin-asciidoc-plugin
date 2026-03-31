@@ -11,12 +11,12 @@ import { searchKeymap, highlightSelectionMatches, openSearchPanel, closeSearchPa
 import { bracketMatching } from "@codemirror/language";
 import { asciidocLanguage } from "./lib/editor/asciidoc-language";
 import { asciidocKeymap } from "./lib/editor/keybindings";
-import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled, renderAsPlainText } from "./lib/editor/live-preview";
+import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled } from "./lib/editor/live-preview";
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
 import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck, setShowPluralSingular } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
 import { isSmartQuotesEnabled } from "./lib/toolbar/panels/formatting-panel";
-import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary, getSpellcheckSettings, setFullscreenMode, convertMarkdownPaste } from "./lib/ipc";
+import { saveNoteContent, requestResources, getPersonalDictionary, addWordToPersonalDictionary, getSpellcheckSettings, setFullscreenMode, convertMarkdownPaste, renderAsciidoc } from "./lib/ipc";
 import { setMermaidTheme } from "./lib/utils/mermaid-render";
 
 declare const webviewApi: {
@@ -850,6 +850,26 @@ function dismissClipboardMenu() {
   }
 }
 
+function stripHtmlToPlainText(html: string): string {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return (div.textContent || div.innerText || "").trim();
+}
+
+async function copyRenderedAsciidoc(rawAsciiDoc: string): Promise<void> {
+  const { html } = await renderAsciidoc(rawAsciiDoc);
+  const plainText = stripHtmlToPlainText(html);
+  try {
+    const htmlBlob = new Blob([html], { type: "text/html" });
+    const textBlob = new Blob([plainText], { type: "text/plain" });
+    await navigator.clipboard.write([
+      new ClipboardItem({ "text/html": htmlBlob, "text/plain": textBlob }),
+    ]);
+  } catch {
+    await navigator.clipboard.writeText(plainText);
+  }
+}
+
 async function pasteAsConverted(view: EditorView) {
   const clipText = await navigator.clipboard.readText();
   if (!clipText) return;
@@ -899,8 +919,8 @@ function showClipboardContextMenu(view: EditorView, event: MouseEvent) {
     navigator.clipboard.writeText(selectedText);
     view.dispatch({ changes: { from: selFrom, to: selTo, insert: "" } });
   });
-  addItem("Cut as AsciiDoc Text", hasSelection, () => {
-    navigator.clipboard.writeText(renderAsPlainText(selectedText));
+  addItem("Cut as AsciiDoc Text", hasSelection, async () => {
+    await copyRenderedAsciidoc(selectedText);
     view.dispatch({ changes: { from: selFrom, to: selTo, insert: "" } });
   });
 
@@ -911,7 +931,7 @@ function showClipboardContextMenu(view: EditorView, event: MouseEvent) {
     navigator.clipboard.writeText(selectedText);
   });
   addItem("Copy as AsciiDoc Text", hasSelection, () => {
-    navigator.clipboard.writeText(renderAsPlainText(selectedText));
+    copyRenderedAsciidoc(selectedText);
   });
 
   addSeparator();
