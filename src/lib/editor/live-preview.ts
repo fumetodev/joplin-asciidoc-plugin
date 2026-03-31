@@ -88,12 +88,30 @@ interface BibliographyBlockInfo {
   endLine: number;     // last content line before next same/higher heading or EOF
 }
 
+interface TocMacroBlockInfo {
+  type: "tocmacro";
+  macroLine: number;
+}
+
+interface TocEntry {
+  level: number;       // depth: 1 = ==, 2 = ===, etc.
+  title: string;       // raw heading text
+  lineNumber: number;  // for click-to-navigate
+}
+
+interface TocConfig {
+  enabled: boolean;
+  placement: "auto" | "preamble" | "macro";
+  toclevels: number;   // 1-5, default 2
+  title: string;       // default "Table of Contents"
+}
+
 /** Resolve a raw stem notation to a concrete MathNotation for rendering. */
 function resolveStemNotation(raw: "stem" | "latexmath" | "asciimath"): MathNotation {
   return raw === "stem" ? documentStemNotation : raw;
 }
 
-type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo | MermaidBlockInfo | DocHeaderBlockInfo | BibliographyBlockInfo;
+type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePreviewBlockInfo | ContentBlockInfo | StemBlockInfo | MermaidBlockInfo | DocHeaderBlockInfo | BibliographyBlockInfo | TocMacroBlockInfo;
 
 interface PreviewHeightCache {
   lineHeights: Map<number, number>;
@@ -2111,6 +2129,7 @@ function getBlockStartLineNumber(block: BlockInfo): number {
   if (block.type === "contentblock" && block.attrLine > 0) return block.attrLine;
   if (block.type === "bibliography") return block.attrLine;
   if (block.type === "image") return block.imageLine;
+  if (block.type === "tocmacro") return block.macroLine;
   return block.openLine;
 }
 
@@ -2118,6 +2137,7 @@ function getBlockEndLineNumber(block: BlockInfo): number {
   if (block.type === "docheader") return block.endLine;
   if (block.type === "bibliography") return block.endLine;
   if (block.type === "image") return block.imageLine;
+  if (block.type === "tocmacro") return block.macroLine;
   if (block.type === "stem") return block.closeLine;
   if (block.type === "mermaid") return block.closeLine;
   return block.closeLine;
@@ -2308,6 +2328,13 @@ function detectBlocks(doc: any): BlockInfo[] {
   while (i <= doc.lines) {
     const text = doc.line(i).text.trim();
     const imageLineText = doc.line(i).text;
+
+    // Detect toc::[] macro line
+    if (/^toc::\[\]$/.test(text)) {
+      blocks.push({ type: "tocmacro", macroLine: i });
+      i += 1;
+      continue;
+    }
 
     const imageWithTitle = /^\.(?!\.)/.test(text) && i + 1 <= doc.lines
       ? parseImageMacroLine(doc.line(i + 1).text, text.slice(1))
@@ -3258,6 +3285,86 @@ function detectStemAttribute(doc: any): { hasStem: boolean; notation: MathNotati
   return { hasStem: false, notation: "asciimath" };
 }
 
+function detectTocConfig(doc: any): TocConfig {
+  let enabled = false;
+  let placement: "auto" | "preamble" | "macro" = "auto";
+  let toclevels = 2;
+  let title = "Table of Contents";
+
+  for (let i = 1; i <= Math.min(doc.lines, 50); i++) {
+    const text = doc.line(i).text.trim();
+    if (!text) break;
+
+    const tocMatch = text.match(/^:toc:\s*(.*)$/);
+    if (tocMatch) {
+      enabled = true;
+      const val = tocMatch[1].trim().toLowerCase();
+      if (val === "preamble") placement = "preamble";
+      else if (val === "macro") placement = "macro";
+      else placement = "auto";
+    }
+
+    const levelsMatch = text.match(/^:toclevels:\s*(\d+)\s*$/);
+    if (levelsMatch) {
+      toclevels = Math.max(1, Math.min(5, parseInt(levelsMatch[1], 10)));
+    }
+
+    const titleMatch = text.match(/^:toc-title:\s*(.+)$/);
+    if (titleMatch) {
+      title = titleMatch[1].trim() || "Table of Contents";
+    }
+  }
+
+  return { enabled, placement, toclevels, title };
+}
+
+function buildBlockLineSet(blocks: BlockInfo[]): Set<number> {
+  const s = new Set<number>();
+  for (const b of blocks) {
+    const start = getBlockStartLineNumber(b);
+    const end = getBlockEndLineNumber(b);
+    for (let ln = start; ln <= end; ln++) s.add(ln);
+  }
+  return s;
+}
+
+function collectTocEntries(doc: any, blocks: BlockInfo[], toclevels: number): TocEntry[] {
+  const entries: TocEntry[] = [];
+  if (toclevels === 0) return entries;
+
+  const blockLines = buildBlockLineSet(blocks);
+
+  for (let ln = 1; ln <= doc.lines; ln++) {
+    if (blockLines.has(ln)) continue;
+    const text = doc.line(ln).text.trim();
+    const m = text.match(/^(={2,5})\s+(.+)$/);
+    if (m) {
+      const depth = m[1].length - 1; // == → 1, === → 2, etc.
+      if (depth <= toclevels) {
+        entries.push({ level: depth, title: m[2], lineNumber: ln });
+      }
+    }
+  }
+
+  return entries;
+}
+
+function stripInlineMarkup(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/(?<!\w)\*(.+?)\*(?!\w)/g, "$1")
+    .replace(/(?<!\w)_(.+?)_(?!\w)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\^([^^]+)\^/g, "$1")
+    .replace(/~([^~]+)~/g, "$1")
+    .replace(/#([^#]+)#/g, "$1")
+    .replace(/\[\[.*?\]\]/g, "")
+    .replace(/<<.*?>>/g, "")
+    .replace(/(?:stem|latexmath|asciimath):\[.*?\]/g, "")
+    .trim();
+}
+
 function getFootnoteNumber(id: string, text: string): number {
   if (id && footnoteNumberMap.has(id)) {
     return footnoteNumberMap.get(id)!;
@@ -3753,6 +3860,93 @@ class DocHeaderWidget extends WidgetType {
       && this.lineFrom === other.lineFrom
       && this.attributes.length === other.attributes.length
       && this.attributes.every((a, i) => a.name === other.attributes[i].name && a.value === other.attributes[i].value);
+  }
+
+  ignoreEvent(): boolean { return false; }
+}
+
+// =====================================================
+// Table of Contents Widget
+// =====================================================
+
+class TocWidget extends WidgetType {
+  constructor(
+    readonly tocTitle: string,
+    readonly entries: TocEntry[],
+    readonly lineFrom: number,
+    readonly isVirtual: boolean,
+  ) { super(); }
+
+  toDOM(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-lp-toc";
+    wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "cm-lp-toc-title";
+    titleEl.textContent = this.tocTitle;
+    wrap.appendChild(titleEl);
+
+    const list = document.createElement("ul");
+    list.className = "cm-lp-toc-list";
+
+    for (const entry of this.entries) {
+      const li = document.createElement("li");
+      li.className = `cm-lp-toc-entry cm-lp-toc-level-${entry.level}`;
+      li.style.paddingLeft = `${(entry.level - 1) * 1.2}em`;
+
+      const link = document.createElement("a");
+      link.className = "cm-lp-toc-link";
+      link.textContent = stripInlineMarkup(entry.title);
+      link.dataset.targetLine = String(entry.lineNumber);
+      link.href = "#";
+
+      link.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const view = getEditorViewFromElement(wrap);
+        if (!view) return;
+        const targetLineNumber = parseInt(link.dataset.targetLine || "0", 10);
+        if (targetLineNumber > 0 && targetLineNumber <= view.state.doc.lines) {
+          const targetLine = view.state.doc.line(targetLineNumber);
+          view.dispatch({
+            selection: { anchor: targetLine.from },
+            scrollIntoView: true,
+          });
+          view.focus();
+        }
+      });
+
+      li.appendChild(link);
+      list.appendChild(li);
+    }
+
+    wrap.appendChild(list);
+
+    if (!this.isVirtual) {
+      attachPreviewFocusHandlers(wrap, this.lineFrom, (target) => {
+        return target.closest(".cm-lp-toc-link") !== null;
+      });
+    }
+
+    return wrap;
+  }
+
+  eq(other: TocWidget): boolean {
+    return this.tocTitle === other.tocTitle
+      && this.lineFrom === other.lineFrom
+      && this.isVirtual === other.isVirtual
+      && this.entries.length === other.entries.length
+      && this.entries.every((e, i) =>
+        e.level === other.entries[i].level
+        && e.title === other.entries[i].title
+        && e.lineNumber === other.entries[i].lineNumber
+      );
   }
 
   ignoreEvent(): boolean { return false; }
@@ -4790,6 +4984,43 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
   const stemInfo = detectStemAttribute(doc);
   documentStemNotation = stemInfo.notation;
 
+  // Detect :toc: document attribute and collect TOC entries
+  const tocConfig = detectTocConfig(doc);
+  let tocEntries: TocEntry[] = [];
+  let tocTargetLine = -1; // line number to replace with TOC widget (for auto/preamble)
+  if (tocConfig.enabled) {
+    tocEntries = collectTocEntries(doc, blocks, tocConfig.toclevels);
+    if (tocEntries.length > 0 && tocConfig.placement !== "macro") {
+      const blockLineSet = buildBlockLineSet(blocks);
+      if (tocConfig.placement === "auto") {
+        // Use the first blank line after the docheader block
+        const docheader = blocks.find(b => b.type === "docheader");
+        if (docheader) {
+          const afterEnd = getBlockEndLineNumber(docheader) + 1;
+          if (afterEnd <= doc.lines && !doc.line(afterEnd).text.trim()) {
+            tocTargetLine = afterEnd;
+          }
+        }
+      } else if (tocConfig.placement === "preamble") {
+        // Use the last blank line before the first section heading
+        const docheader = blocks.find(b => b.type === "docheader");
+        const afterHeader = docheader ? getBlockEndLineNumber(docheader) + 1 : 1;
+        let firstSectionLine = -1;
+        for (let ln = afterHeader; ln <= doc.lines; ln++) {
+          if (blockLineSet.has(ln)) continue;
+          if (/^={2,5}\s+/.test(doc.line(ln).text.trim())) { firstSectionLine = ln; break; }
+        }
+        if (firstSectionLine > afterHeader) {
+          // Walk backward to find the blank line just before the heading
+          let blankLine = firstSectionLine - 1;
+          if (blankLine >= afterHeader && !doc.line(blankLine).text.trim()) {
+            tocTargetLine = blankLine;
+          }
+        }
+      }
+    }
+  }
+
   // Reset footnote numbering for this render pass
   resetFootnoteNumbering();
 
@@ -5170,6 +5401,14 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           }
         }
         // Edit mode: show raw lines unchanged
+      } else if (block.type === "tocmacro") {
+        if (!cursorInBlock && tocConfig.enabled && tocConfig.placement === "macro" && tocEntries.length > 0) {
+          const macroLine = doc.line(block.macroLine);
+          builder.add(macroLine.from, macroLine.from, specialBlockLineDecoration);
+          builder.add(macroLine.from, macroLine.to, Decoration.replace({
+            widget: new TocWidget(tocConfig.title, tocEntries, macroLine.from, false),
+          }));
+        }
       }
 
       i = blockEnd + 1;
@@ -5250,7 +5489,14 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     }
 
     if (line.from === line.to) {
-      builder.add(line.from, line.from, emptyLineDecoration);
+      // Replace blank line with TOC widget if this is the target line for auto/preamble
+      if (i === tocTargetLine && tocEntries.length > 0) {
+        builder.add(line.from, line.from, Decoration.replace({
+          widget: new TocWidget(tocConfig.title, tocEntries, line.from, true),
+        }));
+      } else {
+        builder.add(line.from, line.from, emptyLineDecoration);
+      }
       pendingRole = null;
       i++;
       continue;
@@ -5532,6 +5778,49 @@ const livePreviewTheme = EditorView.theme({
     borderLeft: "1px solid var(--asciidoc-border, rgba(128,128,128,0.15))",
     color: "var(--asciidoc-fg, #333)",
     fontWeight: "400",
+  },
+
+  // Table of Contents
+  ".cm-lp-toc": {
+    display: "flex",
+    flexDirection: "column",
+    padding: "0.857em 1.143em",
+    borderRadius: "6px",
+    background: "var(--asciidoc-bg-alt, rgba(128,128,128,0.04))",
+    border: "1px solid var(--asciidoc-border, rgba(128,128,128,0.12))",
+    margin: "0.571em 0",
+  },
+  ".cm-lp-toc-title": {
+    fontSize: "0.85em",
+    fontWeight: "700",
+    textTransform: "uppercase" as any,
+    letterSpacing: "0.04em",
+    color: "var(--asciidoc-fg, #333)",
+    marginBottom: "0.571em",
+    paddingBottom: "0.286em",
+    borderBottom: "1px solid var(--asciidoc-border, rgba(128,128,128,0.15))",
+  },
+  ".cm-lp-toc-list": {
+    listStyle: "none",
+    margin: "0",
+    padding: "0",
+  },
+  ".cm-lp-toc-entry": {
+    lineHeight: "1.6",
+    margin: "0",
+    padding: "0",
+  },
+  ".cm-lp-toc-link": {
+    color: "var(--asciidoc-link, #2156a5)",
+    textDecoration: "none",
+    fontSize: "0.9em",
+    cursor: "pointer",
+  },
+  ".cm-lp-toc-link:hover": {
+    textDecoration: "underline",
+  },
+  ".cm-lp-toc-level-1": {
+    fontWeight: "600",
   },
 
   // Empty lines — keep full editor line height
