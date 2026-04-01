@@ -884,6 +884,14 @@ async function registerSettings() {
       label: "Create new notes as AsciiDoc",
       description: "When enabled, new notes will automatically be created as AsciiDoc notes with the Live Preview editor.",
     },
+    "asciidoc.compactSpacing": {
+      section: "asciidoc",
+      public: true,
+      type: 3, // Boolean
+      value: false,
+      label: "Compact Spacing",
+      description: "When enabled, uses tighter spacing between elements instead of official Asciidoctor spacing values.",
+    },
     "asciidoc.personalDictionary": {
       section: "asciidoc",
       public: false,
@@ -976,6 +984,7 @@ joplin.plugins.register({
           if (msg.type === "ready") {
             const response: any = {
               isDark: await joplin.shouldUseDarkColors(),
+              compactSpacing: await joplin.settings.value("asciidoc.compactSpacing") === true,
             };
             try {
               const note = await joplin.workspace.selectedNote();
@@ -1261,6 +1270,17 @@ joplin.plugins.register({
           // Convert Markdown to AsciiDoc (for paste conversion)
           if (msg.type === "convertMarkdownPaste") {
             return { asciidoc: convertMarkdownToAsciidoc(msg.markdown || "") };
+          }
+        });
+
+        // Push setting changes to the webview
+        await (joplin.settings as any).onChange(async (event: any) => {
+          if (event.keys.includes("asciidoc.compactSpacing")) {
+            const value = await joplin.settings.value("asciidoc.compactSpacing");
+            editors.postMessage(handle, {
+              type: "updateCompactSpacing",
+              value: value === true,
+            });
           }
         });
       },

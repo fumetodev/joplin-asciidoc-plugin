@@ -11,7 +11,7 @@ import { searchKeymap, highlightSelectionMatches, openSearchPanel, closeSearchPa
 import { bracketMatching } from "@codemirror/language";
 import { asciidocLanguage } from "./lib/editor/asciidoc-language";
 import { asciidocKeymap } from "./lib/editor/keybindings";
-import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled } from "./lib/editor/live-preview";
+import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled, setCompactSpacing, closeFloatingPreview } from "./lib/editor/live-preview";
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
 import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck, setShowPluralSingular } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
@@ -44,8 +44,10 @@ let overlayEditingEnabled = localStorage.getItem("asciidoc-overlay-editing") ===
 let spellcheckEnabled = localStorage.getItem("asciidoc-spellcheck") !== "false";
 let currentZoom = parseInt(localStorage.getItem("asciidoc-editor-zoom") || "100", 10);
 if (currentZoom < 50 || currentZoom > 150) currentZoom = 100;
+let compactSpacingEnabled = false;
 // Sync initial state to live-preview module
 setOverlayEditingEnabled(overlayEditingEnabled);
+setCompactSpacing(compactSpacingEnabled);
 
 // Highlight removal helpers
 const backgroundHighlightPattern = /\[\.[a-z-]+-background\]#([^#]+)#/g;
@@ -355,6 +357,13 @@ function updateBlockShading() {
   );
 }
 
+function updateCompactSpacing() {
+  const root = document.getElementById("asciidoc-editor-root");
+  if (root) root.classList.toggle("compact-spacing", compactSpacingEnabled);
+  setCompactSpacing(compactSpacingEnabled);
+  if (editorView) refreshLivePreview(editorView);
+}
+
 function updateSpellcheck() {
   if (!editorView) return;
   editorView.dispatch({
@@ -369,7 +378,7 @@ function updateSpellcheck() {
 // =====================================================
 
 let isFullscreen = false; // never persisted — always starts off
-const FULLSCREEN_EXTRA_MARGIN = 200;
+const FULLSCREEN_EXTRA_MARGIN = 0;
 let autoHideToolbar = localStorage.getItem("asciidoc-autohide-toolbar") === "true";
 
 let autoHideTrigger: HTMLElement | null = null;
@@ -770,6 +779,7 @@ function createEditor(container: HTMLElement, content: string) {
   });
 
   updateBlockShading();
+  updateCompactSpacing();
 }
 
 // =====================================================
@@ -782,6 +792,9 @@ function handleMessage(msg: any) {
   if (msg.type === "updateNote") {
     const { id, body } = msg.value || {};
     if (!id || body == null) return;
+
+    // Close any open floating section preview from the previous note
+    closeFloatingPreview();
 
     // Force save current note before switching
     if (isDirty && currentNoteId && currentNoteId !== id) {
@@ -817,6 +830,11 @@ function handleMessage(msg: any) {
     setMermaidTheme(msg.value === "dark");
     // Force live-preview to rebuild so mermaid diagrams re-render with new theme
     if (editorView) refreshLivePreview(editorView);
+  }
+
+  if (msg.type === "updateCompactSpacing") {
+    compactSpacingEnabled = msg.value === true;
+    updateCompactSpacing();
   }
 }
 
@@ -1136,6 +1154,12 @@ function init() {
         root.classList.add(response.isDark ? "dark-theme" : "light-theme");
       }
       setMermaidTheme(response.isDark);
+    }
+
+    // Apply compact spacing setting from Joplin settings
+    if (response.compactSpacing != null) {
+      compactSpacingEnabled = response.compactSpacing === true;
+      updateCompactSpacing();
     }
 
     // Load initial note if available

@@ -29,6 +29,29 @@ interface TableBlockInfo {
   attrLine: number; // line with [cols=...] etc., or -1 if none
   openLine: number; // line with opening |===
   closeLine: number; // line with closing |===
+  delimiter: string; // "|===" or ",===" or ":==="
+}
+
+interface ColumnSpec {
+  width: number;
+  autowidth: boolean;
+  halign: "" | "left" | "center" | "right";
+  valign: "" | "top" | "middle" | "bottom";
+  style: "" | "a" | "d" | "e" | "h" | "l" | "m" | "s";
+}
+
+interface TableAttributes {
+  rawLine: string;
+  cols: ColumnSpec[];
+  header: boolean | null;
+  footer: boolean;
+  autowidth: boolean;
+  width: string;
+  frame: "all" | "ends" | "sides" | "none";
+  grid: "all" | "rows" | "cols" | "none";
+  stripes: "default" | "none" | "even" | "odd" | "all" | "hover";
+  format: "psv" | "csv" | "dsv";
+  separator: string;
 }
 
 interface BlockquoteBlockInfo {
@@ -115,6 +138,12 @@ type BlockInfo = CodeBlockInfo | TableBlockInfo | BlockquoteBlockInfo | ImagePre
 
 interface PreviewHeightCache {
   lineHeights: Map<number, number>;
+}
+
+let compactSpacing = false;
+
+export function setCompactSpacing(enabled: boolean) {
+  compactSpacing = enabled;
 }
 
 const LINE_HEIGHT_DATA_ATTR = "data-lp-line-from";
@@ -988,12 +1017,13 @@ function openTableBlockEditorModal(
   view: EditorView,
   headers: string[],
   rows: string[][],
+  attrs: TableAttributes,
   blockFrom: number,
   blockTo: number,
 ) {
   const { overlay, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Table");
 
-  const tableWidget = new TableEditWidget(headers, rows, blockFrom, blockTo, {
+  const tableWidget = new TableEditWidget(headers, rows, attrs, blockFrom, blockTo, {
     liveSync: false,
     showDeleteButton: false,
   });
@@ -1898,17 +1928,20 @@ function estimateListLineHeightPx(rawHeightPx: number): number {
 }
 
 function estimateHeadingLineHeightPx(rawHeightPx: number, level: number): number {
-  // Heading font-size multipliers from renderLineHtml: 2em, 1.5em, 1.25em, 1.1em, 1em
-  const sizeMultipliers = [2, 1.5, 1.25, 1.1, 1];
+  const sizeMultipliers = compactSpacing
+    ? [2, 1.5, 1.25, 1.1, 1]
+    : [2.125, 1.6875, 1.375, 1.125, 1.125];
+  const headingLh = compactSpacing ? 1.4 : 1.2;
   const multiplier = sizeMultipliers[Math.min(level - 1, 4)];
-  // line-height for headings is 1.4 (from theme), raw line uses ~1.6
-  const headingLineHeight = rawHeightPx * multiplier * (1.4 / 1.6);
-  // H1/H2 have margin: 0.8em top + 0.4em bottom + padding-bottom
-  if (level <= 2) {
+  const headingLineHeight = rawHeightPx * multiplier * (headingLh / 1.6);
+  // Official mode: all levels have margins. Compact: only H1/H2.
+  if (!compactSpacing || level <= 2) {
     const emSize = rawHeightPx / 1.6;
-    const marginTop = emSize * 0.8;
-    const marginBottom = emSize * 0.4;
-    const paddingBottom = emSize * (level === 1 ? 0.3 : 0.2);
+    const marginTop = compactSpacing ? emSize * 0.8 : emSize * 1;
+    const marginBottom = compactSpacing ? emSize * 0.4 : emSize * 0.5;
+    const paddingBottom = compactSpacing
+      ? (level === 1 ? emSize * 0.3 : level === 2 ? emSize * 0.2 : 0)
+      : 0;
     return headingLineHeight + marginTop + marginBottom + paddingBottom;
   }
   return headingLineHeight;
@@ -2000,7 +2033,7 @@ function buildContentBlockPreviewLines(
           const innerLineComment = sourceAttrMatch[2] ? parseLineComment(sourceAttrMatch[2]) : undefined;
           const { cleanedCode: innerClean, callouts: innerCallouts } = processCodeCallouts(codeLines.join("\n"), innerLineComment);
           const codeContentHtml = renderCodeWithCalloutBadges(innerClean, innerCallouts);
-          const codeHtml = `<div class="cm-lp-codeblock" style="margin:0.4em 0"><div class="cm-lp-codeblock-header">${escapeHtml(langLabel)}</div><pre class="cm-lp-codeblock-pre"><code>${codeContentHtml}</code></pre></div>`;
+          const codeHtml = `<div class="cm-lp-codeblock"><div class="cm-lp-codeblock-header">${escapeHtml(langLabel)}</div><pre class="cm-lp-codeblock-pre"><code>${codeContentHtml}</code></pre></div>`;
           collapsed.push({ html: codeHtml, empty: false });
           previousWasEmpty = false;
           idx = codeEnd + 1;
@@ -2036,7 +2069,7 @@ function buildContentBlockPreviewLines(
         }
         const { cleanedCode: innerClean2, callouts: innerCallouts2 } = processCodeCallouts(codeLines.join("\n"));
         const codeContentHtml2 = renderCodeWithCalloutBadges(innerClean2, innerCallouts2);
-        const codeHtml = `<div class="cm-lp-codeblock" style="margin:0.4em 0"><div class="cm-lp-codeblock-header">CODE</div><pre class="cm-lp-codeblock-pre"><code>${codeContentHtml2}</code></pre></div>`;
+        const codeHtml = `<div class="cm-lp-codeblock"><div class="cm-lp-codeblock-header">CODE</div><pre class="cm-lp-codeblock-pre"><code>${codeContentHtml2}</code></pre></div>`;
         collapsed.push({ html: codeHtml, empty: false });
         previousWasEmpty = false;
         idx = codeEnd + 1;
@@ -2068,7 +2101,7 @@ function buildContentBlockPreviewLines(
           const stemLines: string[] = [];
           for (let j = idx + 2; j < stemEnd; j++) stemLines.push(trimmed[j].text);
           const resolvedNotation = resolveStemNotation(stemInnerMatch[1] as "stem" | "latexmath" | "asciimath");
-          const mathHtml = `<div class="cm-lp-stemblock" style="margin:0.4em 0;padding:0.6em;text-align:center;border:1px solid var(--lp-special-block-border,rgba(128,128,128,0.15));border-radius:4px">${renderMath(stemLines.join("\n"), resolvedNotation, true)}</div>`;
+          const mathHtml = `<div class="cm-lp-stemblock" style="padding:0.6em;text-align:center;border:1px solid var(--lp-special-block-border,rgba(128,128,128,0.15));border-radius:4px">${renderMath(stemLines.join("\n"), resolvedNotation, true)}</div>`;
           collapsed.push({ html: mathHtml, empty: false });
           previousWasEmpty = false;
           idx = stemEnd + 1;
@@ -2213,8 +2246,8 @@ function openPreviewBlockModal(view: EditorView, blockInfo: { block: BlockInfo; 
   }
 
   if (block.type === "table") {
-    const { headers, rows } = parseTable(view.state.doc, block.openLine, block.closeLine);
-    openTableBlockEditorModal(view, headers, rows, blockFrom, blockTo);
+    const { headers, rows, attrs } = parseTable(view.state.doc, block.openLine, block.closeLine, block.attrLine, block.delimiter);
+    openTableBlockEditorModal(view, headers, rows, attrs, blockFrom, blockTo);
     return true;
   }
 
@@ -2601,21 +2634,22 @@ function detectBlocks(doc: any): BlockInfo[] {
       }
     }
 
-    // Detect table block: optional [cols/options] attribute line + |===
-    if (text === "|===") {
+    // Detect table block: optional [cols/options] attribute line + |=== or ,=== or :===
+    if (text === "|===" || text === ",===" || text === ":===") {
+      const tableDelimiter = text;
       // Check if preceding line is a table attribute (e.g. [cols="...", options="header"])
       const prevText = i > 1 ? doc.line(i - 1).text.trim() : "";
-      const hasAttrLine = /^\[.*(?:cols|options|%header|%autowidth|%footer|width|frame|grid|stripes).*\]$/.test(prevText);
+      const hasAttrLine = /^\[.*(?:cols|options|%header|%autowidth|%footer|width|frame|grid|stripes|format|separator).*\]$/.test(prevText);
       const attrLine = hasAttrLine ? i - 1 : -1;
       let closeLine = -1;
       for (let j = i + 1; j <= doc.lines; j++) {
-        if (doc.line(j).text.trim() === "|===") {
+        if (doc.line(j).text.trim() === tableDelimiter) {
           closeLine = j;
           break;
         }
       }
       if (closeLine > 0) {
-        blocks.push({ type: "table", attrLine, openLine: i, closeLine });
+        blocks.push({ type: "table", attrLine, openLine: i, closeLine, delimiter: tableDelimiter });
         i = closeLine + 1;
         continue;
       }
@@ -2683,37 +2717,150 @@ function detectBlocks(doc: any): BlockInfo[] {
 // Table Parsing
 // =====================================================
 
-function parseTable(doc: any, openLine: number, closeLine: number): { headers: string[]; rows: string[][] } {
+function defaultTableAttributes(rawLine = ""): TableAttributes {
+  return {
+    rawLine, cols: [], header: null, footer: false, autowidth: false,
+    width: "", frame: "all", grid: "all", stripes: "default",
+    format: "psv", separator: "",
+  };
+}
+
+function parseColumnSpecs(colsValue: string): ColumnSpec[] {
+  const result: ColumnSpec[] = [];
+  const parts = colsValue.split(",").map(s => s.trim()).filter(Boolean);
+  for (const part of parts) {
+    const m = part.match(/^(?:(\d+)\*)?([<^>])?(\.[<^>])?(~|\d+%?)?([adehms])?$/);
+    if (!m) { result.push({ width: 0, autowidth: false, halign: "", valign: "", style: "" }); continue; }
+    const count = m[1] ? parseInt(m[1], 10) : 1;
+    const halign = (m[2] === "<" ? "left" : m[2] === "^" ? "center" : m[2] === ">" ? "right" : "") as ColumnSpec["halign"];
+    const valign = (m[3] === ".<" ? "top" : m[3] === ".^" ? "middle" : m[3] === ".>" ? "bottom" : "") as ColumnSpec["valign"];
+    const autowidth = m[4] === "~";
+    const width = m[4] && m[4] !== "~" ? parseInt(m[4].replace("%", ""), 10) : 0;
+    const style = (m[5] || "") as ColumnSpec["style"];
+    for (let i = 0; i < count; i++) {
+      result.push({ width, autowidth, halign, valign, style });
+    }
+  }
+  return result;
+}
+
+function parseTableAttributes(line: string): TableAttributes {
+  const attrs = defaultTableAttributes(line);
+  try {
+    let inner = line.replace(/^\[/, "").replace(/\]$/, "");
+    // Extract shorthand %options before parsing named attributes
+    const shorthandRe = /%(\w+)/g;
+    let shMatch;
+    while ((shMatch = shorthandRe.exec(inner)) !== null) {
+      const flag = shMatch[1].toLowerCase();
+      if (flag === "header") attrs.header = true;
+      else if (flag === "noheader") attrs.header = false;
+      else if (flag === "footer") attrs.footer = true;
+      else if (flag === "autowidth") attrs.autowidth = true;
+    }
+    inner = inner.replace(/%\w+/g, "").replace(/^,+/, "").trim();
+    // Split by commas NOT inside quotes
+    const pairs: string[] = [];
+    let current = "";
+    let inQuote = false;
+    for (const ch of inner) {
+      if (ch === '"') { inQuote = !inQuote; current += ch; }
+      else if (ch === "," && !inQuote) { pairs.push(current.trim()); current = ""; }
+      else { current += ch; }
+    }
+    if (current.trim()) pairs.push(current.trim());
+    for (const pair of pairs) {
+      const eqIdx = pair.indexOf("=");
+      if (eqIdx < 0) continue;
+      const key = pair.slice(0, eqIdx).trim().toLowerCase();
+      let val = pair.slice(eqIdx + 1).trim().replace(/^"/, "").replace(/"$/, "");
+      if (key === "cols") attrs.cols = parseColumnSpecs(val);
+      else if (key === "options") {
+        for (const opt of val.split(",").map(s => s.trim().toLowerCase())) {
+          if (opt === "header") attrs.header = true;
+          else if (opt === "noheader") attrs.header = false;
+          else if (opt === "footer") attrs.footer = true;
+          else if (opt === "autowidth") attrs.autowidth = true;
+        }
+      }
+      else if (key === "width") attrs.width = val.includes("%") ? val : val + "%";
+      else if (key === "frame" && ["all", "ends", "sides", "none"].includes(val)) attrs.frame = val as TableAttributes["frame"];
+      else if (key === "grid" && ["all", "rows", "cols", "none"].includes(val)) attrs.grid = val as TableAttributes["grid"];
+      else if (key === "stripes" && ["none", "even", "odd", "all", "hover"].includes(val)) attrs.stripes = val as TableAttributes["stripes"];
+      else if (key === "format" && ["psv", "csv", "dsv"].includes(val)) attrs.format = val as TableAttributes["format"];
+      else if (key === "separator") attrs.separator = val;
+    }
+  } catch { /* fall back to defaults with rawLine preserved */ }
+  return attrs;
+}
+
+function parseCsvRow(line: string, sep: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuote) {
+      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuote = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"' && current.trim() === "") { inQuote = true; current = ""; }
+      else if (ch === sep) { cells.push(current.trim()); current = ""; }
+      else { current += ch; }
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseTable(doc: any, openLine: number, closeLine: number, attrLine = -1, delimiter = "|==="): { headers: string[]; rows: string[][]; attrs: TableAttributes } {
+  // Parse attribute line if present
+  const attrText = attrLine >= 0 ? doc.line(attrLine).text.trim() : "";
+  const attrs = attrText ? parseTableAttributes(attrText) : defaultTableAttributes();
+
+  // Determine format from delimiter shorthand or attribute
+  if (delimiter === ",===") attrs.format = "csv";
+  else if (delimiter === ":===") attrs.format = "dsv";
+
+  const isCsv = attrs.format === "csv";
+  const isDsv = attrs.format === "dsv";
+  const csvSep = isCsv ? (attrs.separator || ",") : isDsv ? (attrs.separator || ":") : "|";
+
   const headers: string[] = [];
   const allCells: string[] = [];
 
-  // In AsciiDoc, a header row is the first content row ONLY if followed by an empty line.
-  // First, find the first non-empty line and check if the next line is empty.
+  // Find first non-empty content line
   let firstContentLine = -1;
   for (let i = openLine + 1; i < closeLine; i++) {
-    if (doc.line(i).text.trim()) {
-      firstContentLine = i;
-      break;
-    }
+    if (doc.line(i).text.trim()) { firstContentLine = i; break; }
   }
 
+  // Header detection: explicit attrs override implicit detection
   let hasHeaderRow = false;
-  if (firstContentLine > 0 && firstContentLine + 1 < closeLine) {
-    // Header row exists if: first content line has multiple cells on one line (with |),
-    // AND is followed by an empty line
-    const nextLine = doc.line(firstContentLine + 1).text.trim();
-    const firstText = doc.line(firstContentLine).text.trim();
-    if (!nextLine && firstText.includes("|")) {
-      hasHeaderRow = true;
+  if (attrs.header === true) {
+    hasHeaderRow = firstContentLine > 0;
+  } else if (attrs.header === false) {
+    hasHeaderRow = false;
+  } else {
+    // Implicit: header row exists if first content line has cells AND is followed by empty line
+    if (firstContentLine > 0 && firstContentLine + 1 < closeLine) {
+      const nextLine = doc.line(firstContentLine + 1).text.trim();
+      const firstText = doc.line(firstContentLine).text.trim();
+      if (!nextLine && (isCsv || isDsv ? firstText.includes(csvSep) : firstText.includes("|"))) {
+        hasHeaderRow = true;
+      }
     }
   }
 
   let startLine = openLine + 1;
   if (hasHeaderRow && firstContentLine > 0) {
     const text = doc.line(firstContentLine).text.trim();
-    const cells = text.split("|").filter((c: string) => c !== "").map((c: string) => c.trim());
-    headers.push(...cells);
-    // Skip past header row and empty line
+    if (isCsv || isDsv) {
+      headers.push(...parseCsvRow(text, csvSep));
+    } else {
+      headers.push(...text.split("|").filter((c: string) => c !== "").map((c: string) => c.trim()));
+    }
     startLine = firstContentLine + 1;
   }
 
@@ -2721,40 +2868,52 @@ function parseTable(doc: any, openLine: number, closeLine: number): { headers: s
     const rawText = doc.line(i).text;
     const text = rawText.trim();
     if (!text) continue;
-    if (text.startsWith("|")) {
-      // Use raw text for split to preserve trailing whitespace cells
-      // (trim would eat trailing spaces, turning "| A |  " into "| A |",
-      //  and split+filter would then lose the last cell)
+    if (isCsv || isDsv) {
+      allCells.push(...parseCsvRow(text, csvSep));
+    } else if (text.startsWith("|")) {
       const cells = rawText.split("|").filter((c: string) => c !== "").map((c: string) => c.trim());
       allCells.push(...cells);
     }
   }
 
-  // Determine column count from headers or by counting cells in first row pattern
-  const numCols = headers.length || (allCells.length > 0 ? countColumnsFromCells(allCells, doc, startLine, closeLine) : 1);
+  // Column count: from cols spec, headers, or cell counting
+  const numCols = attrs.cols.length || headers.length || (allCells.length > 0 ? countColumnsFromCells(allCells, doc, startLine, closeLine, isCsv || isDsv, csvSep) : 1);
   const rows: string[][] = [];
   for (let i = 0; i < allCells.length; i += numCols) {
     rows.push(allCells.slice(i, i + numCols));
   }
 
-  return { headers, rows };
+  return { headers, rows, attrs };
 }
 
-function countColumnsFromCells(allCells: string[], doc: any, startLine: number, closeLine: number): number {
-  // Try to detect column count by looking for multi-cell lines (| cell | cell | cell)
+function countColumnsFromCells(allCells: string[], doc: any, startLine: number, closeLine: number, isCsvDsv = false, sep = ","): number {
   for (let i = startLine; i < closeLine; i++) {
     const rawText = doc.line(i).text;
     const text = rawText.trim();
-    if (!text || !text.startsWith("|")) continue;
-    const cells = rawText.split("|").filter((c: string) => c !== "");
-    if (cells.length > 1) return cells.length;
+    if (!text) continue;
+    if (isCsvDsv) {
+      const cells = parseCsvRow(text, sep);
+      if (cells.length > 1) return cells.length;
+    } else {
+      if (!text.startsWith("|")) continue;
+      const cells = rawText.split("|").filter((c: string) => c !== "");
+      if (cells.length > 1) return cells.length;
+    }
   }
-  // Fallback: assume 1 column
   return 1;
 }
 
-function serializeTable(headers: string[], rows: string[][]): string {
-  let result = "|===\n";
+function serializeTable(headers: string[], rows: string[][], attrRawLine = ""): string {
+  let result = "";
+  if (attrRawLine) {
+    // Strip format/separator attrs since we always serialize as PSV
+    let cleaned = attrRawLine
+      .replace(/,?\s*format\s*=\s*"?[^",\]]*"?/g, "")
+      .replace(/,?\s*separator\s*=\s*"?[^",\]]*"?/g, "")
+      .replace(/\[,+/, "[").replace(/,+\]/, "]").replace(/,,+/g, ",");
+    if (cleaned !== "[]") result += cleaned + "\n";
+  }
+  result += "|===\n";
   if (headers.length > 0) {
     result += "| " + headers.join(" | ") + "\n\n";
   }
@@ -2772,7 +2931,8 @@ function serializeTableFromWrap(wrap: HTMLElement): string {
   const rows = bodyRows.map(tr =>
     Array.from(tr.querySelectorAll(".cm-lp-table-input")).map((inp) => (inp as HTMLInputElement).value || " "),
   );
-  return serializeTable(headers, rows);
+  const attrRawLine = (wrap as any)._attrRawLine || "";
+  return serializeTable(headers, rows, attrRawLine);
 }
 
 // =====================================================
@@ -2932,7 +3092,7 @@ function positionFloatingPanel(panel: HTMLDivElement, anchorEl: HTMLElement) {
   panel.style.right = pad + "px";
 }
 
-function closeFloatingPreview() {
+export function closeFloatingPreview() {
   if (floatingPreviewPanel) {
     floatingPreviewPanel.style.display = "none";
     floatingPreviewPanel.innerHTML = "";
@@ -3128,10 +3288,9 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
   if (headingMatch) {
     const level = headingMatch[1].length;
     const content = renderInline(headingMatch[2]);
-    const sizes = ["2em", "1.5em", "1.25em", "1.1em", "1em"];
-    let style = `font-size:${sizes[level - 1]};font-weight:700`;
-    if (level === 1) style += ";display:inline-block;width:100%;border-bottom:2px solid var(--asciidoc-border,#ddd);padding-bottom:0.3em;margin:0.8em 0 0.4em";
-    if (level === 2) style += ";display:inline-block;width:100%;border-bottom:1px solid var(--asciidoc-border,#eee);padding-bottom:0.2em;margin:0.8em 0 0.4em";
+    let style = `font-size:var(--lp-h${level}-size);font-weight:700;display:inline-block;width:100%;margin:var(--lp-h${level}-margin)`;
+    if (level === 1) style += ";border-bottom:2px solid var(--asciidoc-border,#ddd);padding-bottom:var(--lp-h1-pb)";
+    if (level === 2) style += ";border-bottom:1px solid var(--asciidoc-border,#eee);padding-bottom:var(--lp-h2-pb)";
     return `<span class="cm-lp-heading cm-lp-h${level}" style="${style}">${content}</span>`;
   }
 
@@ -4044,6 +4203,7 @@ class TablePreviewWidget extends WidgetType {
   constructor(
     readonly headers: string[],
     readonly rows: string[][],
+    readonly attrs: TableAttributes,
     readonly lineFrom: number,
     readonly blockFrom: number,
     readonly blockTo: number,
@@ -4054,36 +4214,98 @@ class TablePreviewWidget extends WidgetType {
     wrap.className = "cm-lp-table-wrap";
     wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
     attachBlockModalHandlers(wrap, (view) => {
-      openTableBlockEditorModal(view, this.headers, this.rows, this.blockFrom, this.blockTo);
+      openTableBlockEditorModal(view, this.headers, this.rows, this.attrs, this.blockFrom, this.blockTo);
     });
 
     const table = document.createElement("table");
     table.className = "cm-lp-table";
+    const a = this.attrs;
+
+    // Table width / autowidth
+    if (a.autowidth) table.style.width = "auto";
+    else if (a.width) table.style.width = a.width;
+
+    // Frame
+    if (a.frame !== "all") table.classList.add(`cm-lp-table-frame-${a.frame}`);
+    // Grid
+    if (a.grid !== "all") table.classList.add(`cm-lp-table-grid-${a.grid}`);
+    // Stripes
+    if (a.stripes !== "default") table.classList.add(`cm-lp-table-stripes-${a.stripes}`);
+
+    // Colgroup for proportional widths
+    if (a.cols.length > 0 && !a.autowidth) {
+      const colgroup = document.createElement("colgroup");
+      const totalWeight = a.cols.reduce((sum, c) => sum + (c.width || 1), 0);
+      for (const col of a.cols) {
+        const colEl = document.createElement("col");
+        if (!col.autowidth) {
+          colEl.style.width = `${((col.width || 1) / totalWeight * 100).toFixed(1)}%`;
+        }
+        colgroup.appendChild(colEl);
+      }
+      table.appendChild(colgroup);
+    }
 
     if (this.headers.length > 0) {
       const thead = document.createElement("thead");
       const tr = document.createElement("tr");
-      for (const h of this.headers) {
+      for (let ci = 0; ci < this.headers.length; ci++) {
         const th = document.createElement("th");
-        th.innerHTML = renderInline(h);
+        th.innerHTML = renderInline(this.headers[ci]);
+        // Header cells respect cell-level alignment from cols (per AsciiDoc spec)
+        const colSpec = a.cols[ci];
+        if (colSpec?.halign) th.style.textAlign = colSpec.halign;
+        if (colSpec?.valign) th.style.verticalAlign = colSpec.valign;
         tr.appendChild(th);
       }
       thead.appendChild(tr);
       table.appendChild(thead);
     }
 
-    if (this.rows.length > 0) {
+    const bodyRows = a.footer && this.rows.length > 0 ? this.rows.slice(0, -1) : this.rows;
+    const footerRow = a.footer && this.rows.length > 0 ? this.rows[this.rows.length - 1] : null;
+
+    if (bodyRows.length > 0) {
       const tbody = document.createElement("tbody");
-      for (const row of this.rows) {
+      for (const row of bodyRows) {
         const tr = document.createElement("tr");
-        for (const cell of row) {
+        for (let ci = 0; ci < row.length; ci++) {
           const td = document.createElement("td");
-          td.innerHTML = renderInline(cell);
+          td.innerHTML = renderInline(row[ci]);
+          const colSpec = a.cols[ci];
+          if (colSpec?.halign) td.style.textAlign = colSpec.halign;
+          if (colSpec?.valign) td.style.verticalAlign = colSpec.valign;
+          // Column styles
+          if (colSpec?.style === "e") td.style.fontStyle = "italic";
+          if (colSpec?.style === "s") td.style.fontWeight = "bold";
+          if (colSpec?.style === "m") td.style.fontFamily = "'JetBrains Mono', 'Fira Code', Consolas, monospace";
+          if (colSpec?.style === "h") td.style.fontWeight = "bold";
+          if (colSpec?.style === "l") { td.style.whiteSpace = "pre"; td.style.fontFamily = "'JetBrains Mono', 'Fira Code', Consolas, monospace"; }
           tr.appendChild(td);
         }
         tbody.appendChild(tr);
       }
       table.appendChild(tbody);
+    }
+
+    if (footerRow) {
+      const tfoot = document.createElement("tfoot");
+      const tr = document.createElement("tr");
+      for (let ci = 0; ci < footerRow.length; ci++) {
+        const td = document.createElement("td");
+        td.innerHTML = renderInline(footerRow[ci]);
+        const colSpec = a.cols[ci];
+        if (colSpec?.halign) td.style.textAlign = colSpec.halign;
+        if (colSpec?.valign) td.style.verticalAlign = colSpec.valign;
+        if (colSpec?.style === "e") td.style.fontStyle = "italic";
+        if (colSpec?.style === "s") td.style.fontWeight = "bold";
+        if (colSpec?.style === "m") td.style.fontFamily = "'JetBrains Mono', 'Fira Code', Consolas, monospace";
+        if (colSpec?.style === "h") td.style.fontWeight = "bold";
+        if (colSpec?.style === "l") { td.style.whiteSpace = "pre"; td.style.fontFamily = "'JetBrains Mono', 'Fira Code', Consolas, monospace"; }
+        tr.appendChild(td);
+      }
+      tfoot.appendChild(tr);
+      table.appendChild(tfoot);
     }
 
     wrap.appendChild(table);
@@ -4093,6 +4315,7 @@ class TablePreviewWidget extends WidgetType {
   eq(other: TablePreviewWidget): boolean {
     return JSON.stringify(this.headers) === JSON.stringify(other.headers)
       && JSON.stringify(this.rows) === JSON.stringify(other.rows)
+      && this.attrs.rawLine === other.attrs.rawLine
       && this.lineFrom === other.lineFrom
       && this.blockFrom === other.blockFrom
       && this.blockTo === other.blockTo;
@@ -4390,7 +4613,7 @@ class ImagePreviewWidget extends WidgetType {
     wrap.style.display = "flex";
     wrap.style.flexDirection = "column";
     wrap.style.width = "100%";
-    wrap.style.margin = "0.35em 0";
+    wrap.style.margin = "var(--lp-image-mb) 0";
     wrap.style.alignItems = align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center";
     attachBlockModalHandlers(wrap, (view) => {
       openImageEditorModal(view, {
@@ -4521,6 +4744,7 @@ class TableEditWidget extends WidgetType {
   constructor(
     readonly headers: string[],
     readonly rows: string[][],
+    readonly attrs: TableAttributes,
     readonly blockFrom: number,
     readonly blockTo: number,
     readonly options: { liveSync?: boolean; showDeleteButton?: boolean } = {},
@@ -4532,9 +4756,24 @@ class TableEditWidget extends WidgetType {
     wrap.contentEditable = "false"; // Non-editable island — prevents CM from stealing focus
     (wrap as any)._blockFrom = this.blockFrom;
     (wrap as any)._blockTo = this.blockTo;
+    (wrap as any)._attrRawLine = this.attrs.rawLine;
 
     const table = document.createElement("table");
     table.className = "cm-lp-table";
+
+    // Apply column widths in edit mode for visual feedback
+    if (this.attrs.cols.length > 0 && !this.attrs.autowidth) {
+      const colgroup = document.createElement("colgroup");
+      const totalWeight = this.attrs.cols.reduce((sum, c) => sum + (c.width || 1), 0);
+      for (const col of this.attrs.cols) {
+        const colEl = document.createElement("col");
+        if (!col.autowidth) {
+          colEl.style.width = `${((col.width || 1) / totalWeight * 100).toFixed(1)}%`;
+        }
+        colgroup.appendChild(colEl);
+      }
+      table.appendChild(colgroup);
+    }
 
     // Header row
     const thead = document.createElement("thead");
@@ -5237,13 +5476,13 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
          lastCodeBlockEndLine = blockEnd;
          calloutListAutoNumber = 0;
       } else if (block.type === "table") {
-        const { headers, rows } = parseTable(doc, block.openLine, block.closeLine);
+        const { headers, rows, attrs } = parseTable(doc, block.openLine, block.closeLine, block.attrLine, block.delimiter);
 
         if (cursorInBlock) {
           // Edit mode: first line gets the interactive table, rest are hidden
           const firstLine = doc.line(blockStart);
           builder.add(firstLine.from, firstLine.to, Decoration.replace({
-            widget: new TableEditWidget(headers, rows, fromPos, toPos),
+            widget: new TableEditWidget(headers, rows, attrs, fromPos, toPos),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
             const line = doc.line(j);
@@ -5257,7 +5496,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           const firstLine = doc.line(blockStart);
           builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
           builder.add(firstLine.from, firstLine.to, Decoration.replace({
-            widget: new TablePreviewWidget(headers, rows, firstLine.from, fromPos, toPos),
+            widget: new TablePreviewWidget(headers, rows, attrs, firstLine.from, fromPos, toPos),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
             const line = doc.line(j);
@@ -5683,12 +5922,105 @@ const livePreviewTheme = EditorView.theme({
     position: "relative",
     "--editor-base-size": "14px",
     "--editor-scale": "1",
+    // Spacing variables — official Asciidoctor defaults
+    "--lp-heading-lh": "1.2",
+    "--lp-h1-size": "2.125em",
+    "--lp-h2-size": "1.6875em",
+    "--lp-h3-size": "1.375em",
+    "--lp-h4-size": "1.125em",
+    "--lp-h5-size": "1.125em",
+    "--lp-h1-margin": "1em 0 0.5em",
+    "--lp-h2-margin": "1em 0 0.5em",
+    "--lp-h3-margin": "1em 0 0.5em",
+    "--lp-h4-margin": "1em 0 0.5em",
+    "--lp-h5-margin": "1em 0 0.5em",
+    "--lp-h1-pb": "0",
+    "--lp-h2-pb": "0",
+    "--lp-para-size": "1.0625rem",
+    "--lp-block-mb": "1.25em",
+    "--lp-block-mb-lg": "1.25em",
+    "--lp-codeblock-mb": "1.25em",
+    "--lp-image-mb": "1.25em",
+    "--lp-list-mb": "1.25em",
+    "--lp-ol-ml": "1.75em",
+    "--lp-li-margin": "0",
+    "--lp-dl-dt-mb": "0.3125em",
+    "--lp-dl-dd-mb": "1.25em",
+    "--lp-dl-dd-ml": "1.125em",
+    "--lp-pre-lh": "1.45",
+    "--lp-pre-padding": "1em",
+    "--lp-pre-size": "0.8125em",
+    "--lp-inline-code-size": "0.9375em",
+    "--lp-inline-code-padding": "0.1em 0.5ex",
+    "--lp-inline-code-lh": "1.45",
+    "--lp-quote-lh": "1.75",
+    "--lp-quote-size": "1.15rem",
+    "--lp-quote-margin": "0 1em 1.25em 1.5em",
+    "--lp-quote-padding": "0.5625em 1.25em 0 1.1875em",
+    "--lp-attr-mt": "0.75em",
+    "--lp-attr-size": "0.9375em",
+    "--lp-attr-lh": "1.45",
+    "--lp-caption-lh": "1.45",
+    "--lp-toc-item-lh": "1.3334",
+    "--lp-toc-item-mt": "0.3334em",
+    "--lp-toc-title-size": "1.2em",
+    "--lp-th-padding": "0.5em 0.625em 0.625em",
+    "--lp-td-padding": "0.5625em 0.625em",
+    "--lp-footnote-lh": "1.3334",
+  },
+  // Compact spacing overrides (current plugin values)
+  ".compact-spacing &": {
+    "--lp-heading-lh": "1.4",
+    "--lp-h1-size": "2em",
+    "--lp-h2-size": "1.5em",
+    "--lp-h3-size": "1.25em",
+    "--lp-h4-size": "1.1em",
+    "--lp-h5-size": "1em",
+    "--lp-h1-margin": "0.8em 0 0.4em",
+    "--lp-h2-margin": "0.8em 0 0.4em",
+    "--lp-h3-margin": "0",
+    "--lp-h4-margin": "0",
+    "--lp-h5-margin": "0",
+    "--lp-h1-pb": "0.3em",
+    "--lp-h2-pb": "0.2em",
+    "--lp-para-size": "inherit",
+    "--lp-block-mb": "0.5em",
+    "--lp-block-mb-lg": "1em",
+    "--lp-codeblock-mb": "0.8em",
+    "--lp-image-mb": "0.35em",
+    "--lp-list-mb": "0.5em",
+    "--lp-ol-ml": "1.5em",
+    "--lp-li-margin": "0.2em 0",
+    "--lp-dl-dt-mb": "0.5em",
+    "--lp-dl-dd-mb": "0.3em",
+    "--lp-dl-dd-ml": "1.5em",
+    "--lp-pre-lh": "1.4",
+    "--lp-pre-padding": "0.857em",
+    "--lp-pre-size": "0.85em",
+    "--lp-inline-code-size": "0.9em",
+    "--lp-inline-code-padding": "0.1em 0.3em",
+    "--lp-inline-code-lh": "inherit",
+    "--lp-quote-lh": "1.6",
+    "--lp-quote-size": "inherit",
+    "--lp-quote-margin": "1em 0",
+    "--lp-quote-padding": "0.5em 1em",
+    "--lp-attr-mt": "0.5em",
+    "--lp-attr-size": "0.9em",
+    "--lp-attr-lh": "inherit",
+    "--lp-caption-lh": "inherit",
+    "--lp-toc-item-lh": "1.6",
+    "--lp-toc-item-mt": "0",
+    "--lp-toc-title-size": "0.85em",
+    "--lp-th-padding": "0.429em 0.857em",
+    "--lp-td-padding": "0.429em 0.857em",
+    "--lp-footnote-lh": "1.5",
   },
   ".cm-scroller": {
     padding: "12px 0",
   },
   ".cm-content": {
     padding: "0",
+    textWrap: "pretty",
   },
   ".cm-line": {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
@@ -5791,7 +6123,7 @@ const livePreviewTheme = EditorView.theme({
     margin: "0.571em 0",
   },
   ".cm-lp-toc-title": {
-    fontSize: "0.85em",
+    fontSize: "var(--lp-toc-title-size)",
     fontWeight: "700",
     textTransform: "uppercase" as any,
     letterSpacing: "0.04em",
@@ -5799,6 +6131,7 @@ const livePreviewTheme = EditorView.theme({
     marginBottom: "0.571em",
     paddingBottom: "0.286em",
     borderBottom: "1px solid var(--asciidoc-border, rgba(128,128,128,0.15))",
+    textWrap: "balance",
   },
   ".cm-lp-toc-list": {
     listStyle: "none",
@@ -5806,8 +6139,8 @@ const livePreviewTheme = EditorView.theme({
     padding: "0",
   },
   ".cm-lp-toc-entry": {
-    lineHeight: "1.6",
-    margin: "0",
+    lineHeight: "var(--lp-toc-item-lh)",
+    marginTop: "var(--lp-toc-item-mt)",
     padding: "0",
   },
   ".cm-lp-toc-link": {
@@ -5834,6 +6167,7 @@ const livePreviewTheme = EditorView.theme({
   // Preview line
   ".cm-live-preview-line": {
     lineHeight: "1.6",
+    fontSize: "var(--lp-para-size)",
   },
   ".cm-live-preview-line strong": { fontWeight: "700" },
   ".cm-live-preview-line em": { fontStyle: "italic" },
@@ -5865,13 +6199,15 @@ const livePreviewTheme = EditorView.theme({
     fontStyle: "italic",
     color: "var(--asciidoc-fg, #555)",
     opacity: "0.75",
+    lineHeight: "var(--lp-caption-lh)",
+    textWrap: "pretty",
   },
 
   // Headings
-  ".cm-lp-heading": { color: "var(--asciidoc-heading, #7a2518)", lineHeight: "1.4" },
+  ".cm-lp-heading": { color: "var(--asciidoc-heading, #7a2518)", lineHeight: "var(--lp-heading-lh)", textWrap: "balance" },
 
   // Inline styles
-  ".cm-lp-code": { background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "0.1em 0.3em", borderRadius: "3px", fontSize: "0.9em", fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace" },
+  ".cm-lp-code": { background: "var(--asciidoc-code-bg, #f5f5f5)", padding: "var(--lp-inline-code-padding)", borderRadius: "3px", fontSize: "var(--lp-inline-code-size)", fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace", lineHeight: "var(--lp-inline-code-lh)" },
   ".cm-lp-link": { color: "var(--asciidoc-link, #2156a5)", textDecoration: "none", cursor: "pointer" },
   ".cm-lp-link:hover": { textDecoration: "underline" },
   ".cm-lp-xref-wrap": {
@@ -6111,7 +6447,7 @@ const livePreviewTheme = EditorView.theme({
     borderRadius: "6px",
     padding: "10px 14px",
     fontSize: "0.9em",
-    lineHeight: "1.5",
+    lineHeight: "var(--lp-footnote-lh)",
     color: "var(--asciidoc-fg, #333)",
     boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
@@ -6143,7 +6479,7 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lp-stemblock": {
     display: "block",
     width: "100%",
-    margin: "0.5em 0",
+    margin: "var(--lp-block-mb) 0",
     padding: "0.8em 1em",
     textAlign: "center",
     background: "var(--lp-special-block-bg, rgba(0,0,0,0.03))",
@@ -6176,7 +6512,7 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lp-mermaid-block": {
     display: "block",
     width: "100%",
-    margin: "0.5em 0",
+    margin: "var(--lp-block-mb) 0",
     padding: "0.8em 1em",
     textAlign: "center",
     background: "var(--lp-special-block-bg, rgba(0,0,0,0.03))",
@@ -6324,7 +6660,7 @@ const livePreviewTheme = EditorView.theme({
     borderRadius: "4px",
     overflow: "hidden",
     border: "1px solid var(--asciidoc-border, #ddd)",
-    margin: "0.8em 0",
+    margin: "var(--lp-codeblock-mb) 0",
     background: "var(--asciidoc-code-bg, #f5f5f5)",
   },
   ".cm-lp-codeblock-header": {
@@ -6339,10 +6675,10 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-lp-codeblock-pre": {
     margin: "0",
-    padding: "0.857em",
+    padding: "var(--lp-pre-padding)",
     fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
-    fontSize: "0.85em",
-    lineHeight: "1.4",
+    fontSize: "var(--lp-pre-size)",
+    lineHeight: "var(--lp-pre-lh)",
     color: "var(--asciidoc-fg, #333)",
     whiteSpace: "pre-wrap",
     overflowX: "auto",
@@ -6462,7 +6798,7 @@ const livePreviewTheme = EditorView.theme({
 
   // Bibliography Section Preview
   ".cm-lp-bibliography-section": {
-    margin: "0.8em 0",
+    margin: "var(--lp-block-mb) 0",
     padding: "0.5em 0",
   },
   ".cm-lp-bibliography-heading": {
@@ -6471,12 +6807,14 @@ const livePreviewTheme = EditorView.theme({
     marginBottom: "0.5em",
     paddingBottom: "0.2em",
     borderBottom: "1px solid var(--asciidoc-border, #ddd)",
+    textWrap: "balance",
   },
   ".cm-lp-bibliography-entry": {
     margin: "0.4em 0",
     paddingLeft: "2em",
     textIndent: "-2em",
     lineHeight: "1.6",
+    textWrap: "pretty",
   },
   ".cm-lp-biblio-anchor": {
     color: "var(--asciidoc-link, #2156a5)",
@@ -6493,31 +6831,53 @@ const livePreviewTheme = EditorView.theme({
 
   // Table Preview
   ".cm-lp-table-wrap": {
-    margin: "0.5em 0",
+    margin: "var(--lp-block-mb) 0",
     overflowX: "auto",
   },
   ".cm-lp-table": {
     borderCollapse: "collapse",
     width: "100%",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    border: "1px solid var(--asciidoc-border, #ddd)",
   },
   ".cm-lp-table th": {
     background: "var(--asciidoc-code-bg, #f5f5f5)",
     fontWeight: "bold",
     textAlign: "left",
-    padding: "0.429em 0.857em",
+    padding: "var(--lp-th-padding)",
     border: "1px solid var(--asciidoc-border, #ddd)",
   },
   ".cm-lp-table .cm-lp-side-header": {
     borderRight: "2px solid var(--asciidoc-border, #555)",
   },
   ".cm-lp-table td": {
-    padding: "0.429em 0.857em",
+    padding: "var(--lp-td-padding)",
     border: "1px solid var(--asciidoc-border, #ddd)",
   },
   ".cm-lp-table tbody tr:nth-child(even) td": {
     background: "rgba(128, 128, 128, 0.05)",
   },
+  // Table footer
+  ".cm-lp-table tfoot td": {
+    background: "var(--asciidoc-code-bg, #f5f5f5)",
+    fontWeight: "bold",
+  },
+  // Frame variants (hidden suppresses cell borders in collapsed mode)
+  ".cm-lp-table-frame-none": { borderStyle: "hidden" },
+  ".cm-lp-table-frame-ends": { borderLeftStyle: "hidden", borderRightStyle: "hidden" },
+  ".cm-lp-table-frame-sides": { borderTopStyle: "hidden", borderBottomStyle: "hidden" },
+  // Grid variants
+  ".cm-lp-table-grid-none th, .cm-lp-table-grid-none td": { border: "none" },
+  ".cm-lp-table-grid-rows th, .cm-lp-table-grid-rows td": { borderLeft: "none", borderRight: "none" },
+  ".cm-lp-table-grid-cols th, .cm-lp-table-grid-cols td": { borderTop: "none", borderBottom: "none" },
+  // Stripes variants (doubled class selector to override default even-row rule)
+  ".cm-lp-table.cm-lp-table-stripes-none tbody tr:nth-child(even) td": { background: "transparent" },
+  ".cm-lp-table.cm-lp-table-stripes-odd tbody tr:nth-child(odd) td": { background: "rgba(128,128,128,0.05)" },
+  ".cm-lp-table.cm-lp-table-stripes-odd tbody tr:nth-child(even) td": { background: "transparent" },
+  ".cm-lp-table.cm-lp-table-stripes-all tbody tr:nth-child(even) td": { background: "rgba(128,128,128,0.05)" },
+  ".cm-lp-table.cm-lp-table-stripes-all tbody tr:nth-child(odd) td": { background: "rgba(128,128,128,0.05)" },
+  ".cm-lp-table.cm-lp-table-stripes-hover tbody tr:nth-child(even) td": { background: "transparent" },
+  ".cm-lp-table.cm-lp-table-stripes-hover tbody tr:hover td": { background: "rgba(128,128,128,0.08)" },
 
   // Table Edit Mode
   ".cm-lp-table-edit": {
@@ -6612,7 +6972,7 @@ const livePreviewTheme = EditorView.theme({
 
   ".cm-lp-content-block-wrap": {
     display: "block",
-    margin: "0.5em 0",
+    margin: "var(--lp-block-mb-lg) 0",
     borderRadius: "6px",
     overflow: "hidden",
   },
@@ -6621,6 +6981,8 @@ const livePreviewTheme = EditorView.theme({
     textAlign: "center",
     marginBottom: "0.4em",
     fontSize: "1.05em",
+    lineHeight: "var(--lp-caption-lh)",
+    textWrap: "balance",
   },
   ".cm-lp-content-block-body": {
     display: "flex",
@@ -6632,6 +6994,7 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-lp-content-block-line": {
     lineHeight: "1.6",
+    textWrap: "pretty",
   },
   ".cm-lp-content-block-line > *": {
     margin: "0",
@@ -6674,24 +7037,27 @@ const livePreviewTheme = EditorView.theme({
 
   // Blockquote
   ".cm-lp-blockquote-wrap": {
-    padding: "1em 0",
+    padding: "0",
   },
   ".cm-lp-blockquote": {
-    margin: "0",
-    padding: "0.5em 1em",
+    margin: "var(--lp-quote-margin)",
+    padding: "var(--lp-quote-padding)",
     borderLeft: "4px solid var(--asciidoc-border, #ccc)",
     fontStyle: "italic",
   },
   ".cm-lp-blockquote-content": {
     color: "var(--asciidoc-fg, #555)",
-    lineHeight: "1.6",
+    lineHeight: "var(--lp-quote-lh)",
+    fontSize: "var(--lp-quote-size)",
+    textWrap: "pretty",
   },
   ".cm-lp-blockquote-attribution": {
     fontStyle: "normal",
     textAlign: "right",
     color: "var(--asciidoc-placeholder, #777)",
-    marginTop: "0.5em",
-    fontSize: "0.9em",
+    marginTop: "var(--lp-attr-mt)",
+    fontSize: "var(--lp-attr-size)",
+    lineHeight: "var(--lp-attr-lh)",
   },
 
   // List lines — tuned to match the raw editor line height more closely
