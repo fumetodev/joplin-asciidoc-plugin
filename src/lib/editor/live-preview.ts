@@ -5926,6 +5926,9 @@ const livePreviewPlugin = ViewPlugin.fromClass(
       // Don't lock scroll when search panel is open — search needs to scroll to matches
       const searchOpen = update.view.dom.querySelector(".cm-panel.cm-search") != null;
       const needsScrollLock = (update.selectionSet || update.focusChanged) && !update.docChanged && !searchOpen && scrollToTarget == null;
+      // Also stabilize scroll for doc changes (paste, typing, etc.) to prevent
+      // decoration-induced viewport jumps when line heights change during rebuild.
+      const needsDocChangeStabilization = update.docChanged && !searchOpen && scrollToTarget == null;
 
       // Determine cursor jump distance to pick the right stabilization strategy
       const oldLine = update.startState.doc.lineAt(update.startState.selection.main.head).number;
@@ -5936,8 +5939,8 @@ const livePreviewPlugin = ViewPlugin.fromClass(
       const scrollBefore = update.view.scrollDOM.scrollTop;
       let anchorScreenY: number | null = null;
       let anchorCursorPos = -1;
-      if (needsScrollLock && lineDistance > 4) {
-        // For distant jumps: capture cursor line's screen position for anchor-based restoration
+      if ((needsScrollLock && lineDistance > 4) || needsDocChangeStabilization) {
+        // Capture cursor line's screen position for anchor-based restoration
         anchorCursorPos = update.state.selection.main.head;
         const el = getLineElementForPosition(update.view, anchorCursorPos);
         if (el) {
@@ -5983,6 +5986,24 @@ const livePreviewPlugin = ViewPlugin.fromClass(
             requestAnimationFrame(restore);
           });
         }
+      }
+
+      // Stabilize scroll after doc changes (paste, typing) to prevent decoration-induced
+      // viewport jumps. Decorations rebuild toggles lines between raw/preview which changes
+      // heights; this anchors the cursor line's visual position so the view stays still.
+      if (needsDocChangeStabilization && !needsScrollLock && anchorScreenY != null && anchorCursorPos >= 0) {
+        const scroller = update.view.scrollDOM;
+        const targetScreenY = anchorScreenY;
+        const cursorPos = anchorCursorPos;
+        requestAnimationFrame(() => {
+          const el = getLineElementForPosition(update.view, cursorPos);
+          if (!el) return;
+          const currentScreenY = measureElementTopRelativeToScroller(update.view, el);
+          const delta = currentScreenY - targetScreenY;
+          if (Math.abs(delta) > 2) {
+            scroller.scrollTop += delta;
+          }
+        });
       }
 
       // Explicit scroll-to-line: scroll after decorations have settled

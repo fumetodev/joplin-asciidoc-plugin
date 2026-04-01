@@ -13,8 +13,12 @@ Requires *Joplin 3.1+* (desktop only).
 * *Wiki-links & cross-references* -- `+<<noteId,Display Text>>+` links between notes with autocomplete
 * *Template system* -- save and reuse note templates
 * *Spellcheck* -- built-in spell checker with personal dictionary support
-* *Mermaid diagrams* -- 24+ diagram types rendered inline with live preview editing
+* *Mermaid diagrams* -- 24 diagram types rendered inline with live preview editing
 * *Table of Contents* -- automatic TOC generation from document headings
+* *Bibliography* -- citation management with 7 format presets (APA, MLA, Chicago, IEEE, Vancouver, Harvard)
+* *Favorite Copies* -- session clipboard history with Cmd+Shift+C / Cmd+Shift+V
+* *Text case transforms* -- cycle through UPPER, Title Case, lower, snake_case
+* *Smart quotes* -- automatic curly quote insertion with prime/double-prime support
 * *Dark & light themes* -- auto-detected from Joplin's settings
 
 '''
@@ -38,8 +42,14 @@ npm run build
 * *Tools > New AsciiDoc Note* -- creates a blank AsciiDoc note
 * *Tools > Convert to AsciiDoc Note* -- converts the current Markdown note in place
 * *Tools > Convert to AsciiDoc Note (new file)* -- creates an AsciiDoc copy, keeping the original
-* *Right-click a note > Convert to AsciiDoc File* -- convert from the note list
+* *Right-click a note > Create AsciiDoc Copy* -- convert from the note list
+* *Right-click a note > Replace with AsciiDoc File* -- convert in place from the note list
 * *Note toolbar button: "Make AsciiDoc"* -- one-click convert for the current note
+
+=== Converting Entire Notebooks
+
+* *Right-click a notebook > Create AsciiDoc Copy of Notebook* -- recursively convert all notes in the notebook to AsciiDoc copies
+* *Right-click a notebook > Replace with AsciiDoc Notebook* -- recursively convert all notes in the notebook in place
 
 You can also enable *"Create new notes as AsciiDoc"* in Preferences > AsciiDoc to auto-convert every new note.
 
@@ -76,14 +86,17 @@ The ribbon toolbar is organized into four tabs:
 | X~2~
 | Subscript (`+~text~+`)
 
+| Text Case
+| Cycle through CAPITALIZED, Title Case, lower case, snake_case (click to cycle; dropdown for direct pick)
+
 | Font Color
 | Pick from 8 colors (Red, Blue, Green, Purple, Orange, Teal, Maroon, Navy)
 
 | Highlight
-| Pick from 6 highlight colors (Yellow, Lime, Aqua, Pink, Orange, Silver)
+| Pick from 8 highlight colors (Yellow, Lime, Aqua, Pink, Orange, Silver, Red, Purple)
 
 | Find
-| Open the search & replace panel
+| Open the search & replace panel (with match counter)
 |===
 
 === Insert
@@ -105,7 +118,7 @@ The ribbon toolbar is organized into four tabs:
 | Sidebar, Example, Collapsible, Page Break
 
 | Diagram
-| Dropdown with 24+ Mermaid diagram types (Flowchart, Sequence, Class, State, ER, Gantt, Pie, User Journey, Git Graph, Mindmap, Timeline, and more)
+| Dropdown with 24 Mermaid diagram types (Flowchart, Sequence, Class, State, ER, Gantt, Pie, User Journey, Git Graph, Mindmap, Timeline, Quadrant, Sankey, XY Chart, Block, Packet, Kanban, Architecture, C4 Context/Container/Component/Deployment, Requirement, ZenUML)
 
 | Math
 | Dropdown: LaTeX/AsciiMath/Stem inline and block options
@@ -129,16 +142,16 @@ The ribbon toolbar is organized into four tabs:
 | Thematic break (`+'''+`)
 
 | Image
-| Web URL or local file (opens file picker)
+| Web URL or local file (opens file picker) with scale, alignment, title, and caption options
 
 | Link
 | External URL or wiki-link to another note
 
 | Template
-| Insert from your template library
+| Insert from your template library (with search/filter)
 
 | Symbols
-| 10 categories: AsciiDoc, Whitespace, Punctuation, Math, Arrows, Currency, Marks, Shapes, Greek, Emoji
+| 11 categories: AsciiDoc, Whitespace, Punctuation, Math, Arrows, Currency, Marks, Shapes, Greek, Super/Sub, Musical
 |===
 
 === Advanced
@@ -175,7 +188,7 @@ The ribbon toolbar is organized into four tabs:
 | Inline anchor (`+[[id]]+`)
 
 | Bibliography
-| Insert bibliography section with entries
+| Insert bibliography section with entries using citation format presets (APA 7th, MLA 9th, Chicago Notes-Bibliography, Chicago Author-Date, IEEE, Vancouver/NLM, Harvard)
 
 | Cite
 | Insert citation reference (`+<<ref>>+`)
@@ -228,7 +241,7 @@ The editor renders AsciiDoc constructs inline as you type. Move your cursor to a
 
 *Code blocks* -- Fenced source blocks with syntax highlighting and a language label. Click to edit in a modal with a language selector.
 
-*Tables* -- Full rendered table with header row/column support. Click to edit with add/remove row/column controls and header toggles.
+*Tables* -- Full rendered table with header row/column support, column alignment, vertical alignment, striping patterns, frame and grid options. Click to edit with add/remove row/column controls and header toggles.
 
 *Images* -- Web URLs and Joplin local resources (`+:/resourceId+`). Supports alt text, title, caption, scale (10-200%), alignment (center/left/right), and caption position (below/left/right). Click to open a full image editor modal.
 
@@ -238,7 +251,7 @@ The editor renders AsciiDoc constructs inline as you type. Move your cursor to a
 
 *Table of Contents* -- Add `:toc:` to the document header to generate a clickable Table of Contents from section headings. Supports `:toclevels:` (1-5, default 2), `:toc-title:` (custom title), and three placement modes: `auto` (after header), `preamble` (after preamble), and `macro` (at `toc::[]` location). Click any TOC entry to jump to that heading.
 
-*Mermaid diagrams* -- `+[mermaid]+` blocks render 24+ diagram types inline: Flowchart, Sequence, Class, State, ER, Gantt, Pie, User Journey, Git Graph, Mindmap, Timeline, Quadrant, Sankey, XY Chart, Block, Packet, Kanban, Architecture, C4 (Context/Container/Component/Deployment), Requirement, and ZenUML. Click to edit in a dedicated modal with live preview.
+*Mermaid diagrams* -- `+[mermaid]+` blocks render 24 diagram types inline: Flowchart, Sequence, Class, State, ER, Gantt, Pie, User Journey, Git Graph, Mindmap, Timeline, Quadrant, Sankey, XY Chart, Block, Packet, Kanban, Architecture, C4 (Context/Container/Component/Deployment), Requirement, and ZenUML. Click to edit in a dedicated modal with live preview. Supports width control, theme switching, and SVG caching.
 
 *Footnotes* -- Auto-numbered superscript references [1], [2], [3]. Named footnotes (`+footnote:id[text]+`) share numbers when referenced. Click to see a floating popup with the footnote text.
 
@@ -271,9 +284,13 @@ The editor renders AsciiDoc constructs inline as you type. Move your cursor to a
 | Cmd+, | Subscript
 | Cmd+/ | Toggle line comment
 | Cmd+S | Save note
+| Cmd+Shift+C | Copy selection + add to Favorite Copies list
+| Cmd+Shift+V | Paste from Favorite Copies list
 | Tab | Indent list item
 | Shift+Tab | Dedent list item
 | Enter | Auto-continue list / checklist
+| Alt+Backspace | Delete word backward
+| Alt+Delete | Delete word forward
 |===
 
 NOTE: Cmd+F is intercepted by Joplin at the app level. Use the magnifying glass button in the Text tab to open Find & Replace.
@@ -301,11 +318,41 @@ NOTE: Cmd+F is intercepted by Joplin at the app level. Use the magnifying glass 
 | Paste
 | Paste from clipboard
 
+| Paste as Raw Text
+| Paste from clipboard wrapped in passthrough markup
+
 | Convert from Markdown & Paste
 | Convert clipboard Markdown to AsciiDoc and paste
 
 | Select All
 | Select entire document
+|===
+
+=== Spellcheck Context Menu
+
+When right-clicking a misspelled word, additional options appear:
+
+[cols="1,3"]
+|===
+| Option | Action
+
+| Suggestions
+| Up to 5 spelling suggestions -- click to replace
+
+| Ignore
+| Ignore this single occurrence
+
+| Ignore All
+| Ignore all occurrences in the current session
+
+| Add to Dictionary
+| Add word to your personal dictionary
+
+| Add to Dictionary (+ Plural)
+| Add word and its plural form
+
+| Add to Dictionary (+ Singular)
+| Add word and its singular form (for plural words)
 |===
 
 '''
@@ -315,6 +362,17 @@ NOTE: Cmd+F is intercepted by Joplin at the app level. Use the magnifying glass 
 Type `+<<+` to trigger note search autocomplete -- results appear as you type, showing up to 20 matching notes by title. Select a note to insert a cross-reference link.
 
 After selecting a note, type `+#+` to drill into its sections. The autocomplete shows heading levels (h2, h3, etc.) with indentation, letting you link directly to a specific section.
+
+'''
+
+== Favorite Copies
+
+A session-scoped clipboard history for frequently reused text:
+
+. Copy text with *Cmd+Shift+C* -- the selection is copied to the system clipboard and added to the Favorite Copies list.
+. Paste from the list with *Cmd+Shift+V* -- an autocomplete dropdown appears with your saved copies, showing truncated text with character counts.
+. The list holds up to 20 items by default (configurable up to 100 in settings).
+. The list resets when the editor session ends.
 
 '''
 
@@ -333,11 +391,21 @@ When converting a Markdown note to AsciiDoc, the plugin automatically converts:
 
 * *Headings*: `+# Heading+` becomes `+= Heading+` (all 6 levels)
 * *Unordered lists*: `+- item+` becomes `+* item+`, with nested indentation converted to AsciiDoc nesting (`+**+`, `+***+`, etc.)
+* *Links*: `+[text](url)+` becomes `+link:url[text]+`
+* *Images*: `+![alt](url)+` becomes `+image::url[alt]+` (block) or `+image:url[alt]+` (inline)
+* *Linked images*: `+[![alt](img)](link)+` becomes `+image::img[alt, link=link]+`
+* *Inline formatting*: `+**bold**+` becomes `+*bold*+`, `+***bold italic***+` becomes `+*_text_*+`, `+~~strike~~+` becomes `+[.line-through]#text#+`
+* *Code blocks*: Fenced code blocks (`++```lang++`) become AsciiDoc listing blocks (`+[source,lang]+` / `+----+`)
+* *Horizontal rules*: `+---+`, `+***+`, `+___+` become `+'''+`
+* *HTML cleanup*: `+<br>+` tags become newlines, common inline HTML tags are stripped
+* *Escape removal*: Markdown backslash escapes (`+\*+`, `+\[+`, etc.) are cleaned up
 * Content inside fenced code blocks is left untouched
 
 '''
 
 == Settings
+
+=== Plugin Settings
 
 In *Preferences > AsciiDoc*:
 
@@ -348,26 +416,73 @@ In *Preferences > AsciiDoc*:
 | Create new notes as AsciiDoc
 | Off
 | Automatically convert newly created notes to AsciiDoc
+
+| Compact Spacing
+| Off
+| Use tighter spacing between elements instead of official Asciidoctor spacing values
+
+| Favorite Copies
+| On
+| Enable Cmd+Shift+C / Cmd+Shift+V clipboard history
+
+| Favorite Copies Max List Size
+| 20
+| Maximum items in the Favorite Copies list (1-100)
 |===
 
-Editor-level settings (in the Editor toolbar tab):
+In *Preferences > Spell Checker*:
 
 [cols="1,1,3"]
 |===
 | Setting | Default | Description
 
-| Content Margin
-| 0 px
-| Left/right padding for the editor content
+| Adding New Words Adds Their Plural/Singular
+| On
+| When adding a word to the dictionary, also add its plural or singular form automatically
+|===
+
+=== Editor Settings
+
+Editor-level settings (in the Editor toolbar tab), persisted in the browser's localStorage:
+
+[cols="1,1,3"]
+|===
+| Setting | Default | Description
+
+| Line Numbers
+| Off
+| Show/hide line numbers in the gutter
+
+| Spell Checker
+| On
+| Enable/disable real-time spell checking
+
+| Special Block Shading
+| On
+| Background shading on rendered blocks
 
 | Overlay Block Editing
 | Off
 | Open a modal when clicking rendered blocks instead of inline editing
 
+| Fullscreen Mode
+| Off
+| Toggle fullscreen writing mode (never persisted -- always starts off)
+
+| Auto-Hide Toolbar
+| Off
+| Automatically hide the ribbon toolbar
+
+| Content Margin
+| 0 px
+| Left/right padding for the editor content (0-300 px)
+
 | Zoom
 | 100%
 | Editor content zoom level (50-150%)
 |===
+
+Smart quotes can be toggled via the *Quotes* button in the Advanced toolbar tab and are persisted separately.
 
 '''
 
@@ -398,6 +513,8 @@ Supported document attributes in the editor header:
 | Enable math rendering. Values: `latexmath`, `asciimath`
 |===
 
+Custom key=value attributes can also be set via the dialog and are passed through to Asciidoctor.
+
 '''
 
 == Architecture
@@ -410,18 +527,18 @@ The plugin consists of two webpack bundles:
 
 | `index.js`
 | Node (plugin sandbox)
-| ~800 KB
-| Plugin registration, commands, settings, IPC handlers, Asciidoctor.js rendering
+| ~822 KB
+| Plugin registration, commands, settings, IPC handlers, Markdown-to-AsciiDoc converter, Asciidoctor.js rendering
 
 | `panel.js`
 | Web (webview)
-| ~5.3 MB
-| CodeMirror 6 editor, live-preview decoration engine, KaTeX math rendering, Mermaid diagram rendering, spellcheck, toolbar, IPC client
+| ~5.5 MB
+| CodeMirror 6 editor, live-preview decoration engine, KaTeX math rendering, Mermaid diagram rendering (with ELK layout), nspell spellcheck, toolbar, IPC client
 |===
 
-AsciiDoc notes are identified by a `++```asciidoc-settings++` sentinel block appended to the note body. This block also stores document attributes as JSON.
+AsciiDoc notes are identified by a `++```asciidoc-settings++` sentinel block appended to the note body. This block stores document attributes as JSON and is stripped before rendering.
 
-Communication between the plugin sandbox and the webview editor uses Joplin's `postMessage` IPC protocol for operations like saving, rendering, resource resolution, note search, and template management.
+Communication between the plugin sandbox and the webview editor uses Joplin's `postMessage` IPC protocol (19 message types from webview to plugin, 4 from plugin to webview) for operations like saving, rendering, resource resolution, note search, template management, spellcheck settings, and fullscreen mode.
 
 '''
 
