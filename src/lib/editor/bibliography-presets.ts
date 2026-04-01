@@ -377,7 +377,7 @@ const ieee: CitationFormat = {
 // =====================================================
 
 const vancouver: CitationFormat = {
-  id: "vancouver", label: "Vancouver", numbered: true,
+  id: "vancouver", label: "Vancouver/NLM", numbered: true,
   sourceTypes: [
     {
       id: "book", label: "Book",

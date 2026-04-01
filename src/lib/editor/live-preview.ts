@@ -4525,7 +4525,7 @@ class BibliographyPreviewWidget extends WidgetType {
     for (const entry of this.entries) {
       const div = document.createElement("div");
       div.className = "cm-lp-bibliography-entry";
-      div.innerHTML = `<span class="cm-lp-biblio-anchor">[${escapeHtml(entry.xreftext)}]</span> ${renderInline(entry.text)}`;
+      div.innerHTML = `<span class="cm-lp-biblio-anchor">[${escapeHtml(entry.xreftext)}]</span><span class="cm-lp-biblio-text">${renderInline(entry.text)}</span>`;
       wrap.appendChild(div);
     }
 
@@ -6940,9 +6940,9 @@ const livePreviewTheme = EditorView.theme({
     textWrap: "balance",
   },
   ".cm-lp-bibliography-entry": {
+    display: "flex",
+    alignItems: "baseline",
     margin: "0.4em 0",
-    paddingLeft: "2em",
-    textIndent: "-2em",
     lineHeight: "1.6",
     textWrap: "pretty",
   },
@@ -6950,6 +6950,8 @@ const livePreviewTheme = EditorView.theme({
     color: "var(--asciidoc-link, #2156a5)",
     fontWeight: "bold",
     marginRight: "0.3em",
+    flexShrink: "0",
+    whiteSpace: "nowrap",
   },
   ".cm-lp-biblio-ref": {
     color: "var(--asciidoc-link, #2156a5)",
