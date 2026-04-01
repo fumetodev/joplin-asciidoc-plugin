@@ -205,6 +205,52 @@ function removeHighlightMarkup() {
 }
 
 // =====================================================
+// Text case transforms
+// =====================================================
+
+const CASE_TRANSFORMS = ["upper", "title", "lower", "snake"] as const;
+let caseCycleIndex = 0;
+let caseCycleOriginal: string | null = null; // original text before cycling started
+let caseCycleSelKey: string | null = null;   // tracks which selection we're cycling on
+
+function toTitleCase(s: string): string {
+  return s.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+function toSnakeCase(s: string): string {
+  // Handle camelCase/PascalCase
+  let result = s.replace(/([a-z])([A-Z])/g, "$1_$2");
+  // Replace spaces and hyphens with underscores
+  result = result.replace(/[\s\-]+/g, "_");
+  return result.toLowerCase();
+}
+
+function applyTextTransform(text: string, transform: string): string {
+  switch (transform) {
+    case "upper": return text.toUpperCase();
+    case "title": return toTitleCase(text);
+    case "lower": return text.toLowerCase();
+    case "snake": return toSnakeCase(text);
+    case "cycle": {
+      // Build selection key to detect when the user highlights new text
+      const selKey = `${text.length}:${text}`;
+      if (caseCycleSelKey !== selKey && caseCycleOriginal !== text) {
+        // New selection — reset cycle and remember the original
+        caseCycleIndex = 0;
+        caseCycleOriginal = text;
+        caseCycleSelKey = selKey;
+      }
+      const result = applyTextTransform(caseCycleOriginal!, CASE_TRANSFORMS[caseCycleIndex]);
+      caseCycleIndex = (caseCycleIndex + 1) % CASE_TRANSFORMS.length;
+      // Update the key to match the transformed output so next cycle continues
+      caseCycleSelKey = `${result.length}:${result}`;
+      return result;
+    }
+    default: return text;
+  }
+}
+
+// =====================================================
 // Editor command handler (toolbar → CM6)
 // =====================================================
 
@@ -324,6 +370,16 @@ function handleEditorCommand(e: Event) {
       }
     }
     editorView.dispatch({ changes });
+  } else if (type === "transform") {
+    const selected = editorView.state.sliceDoc(from, to);
+    if (!selected) return;
+    const transformed = applyTextTransform(selected, detail.transform);
+    if (transformed !== selected) {
+      editorView.dispatch({
+        changes: { from, to, insert: transformed },
+        selection: { anchor: from, head: from + transformed.length },
+      });
+    }
   } else if (type === "remove-highlight") {
     removeHighlightMarkup();
   }

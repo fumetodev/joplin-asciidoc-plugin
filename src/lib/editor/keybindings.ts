@@ -1,4 +1,4 @@
-import type { KeyBinding } from "@codemirror/view";
+import { type KeyBinding, EditorView } from "@codemirror/view";
 import { deleteGroupBackward, deleteGroupForward } from "@codemirror/commands";
 
 function wrapSelection(view: any, before: string, after: string) {
@@ -235,9 +235,14 @@ export const asciidocKeymap: KeyBinding[] = [
         const contentAfterMarker = text.slice(fullMarker.length).trim();
 
         if (contentAfterMarker) {
+          const newAnchor = from + 1 + continuation.length;
           view.dispatch({
             changes: { from, insert: "\n" + continuation },
-            selection: { anchor: from + 1 + continuation.length },
+            selection: { anchor: newAnchor },
+          });
+          // Scroll after decorations have settled
+          requestAnimationFrame(() => {
+            view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head) });
           });
           return true;
         } else {

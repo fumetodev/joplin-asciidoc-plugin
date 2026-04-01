@@ -83,6 +83,12 @@ export function suffixLine(text: string) {
   }));
 }
 
+export function transformSelection(transform: string) {
+  window.dispatchEvent(new CustomEvent("editor-command", {
+    detail: { type: "transform", transform },
+  }));
+}
+
 export function handleAdmonition(type: string) {
   insertText(`\n${type}: `);
 }

@@ -5,6 +5,7 @@ import {
   handleFontColor,
   handleHighlight,
   positionDropdown,
+  transformSelection,
 } from "../toolbar-actions";
 
 /** Helper: creates a `.ribbon-section` wrapper with label and child controls. */
@@ -58,6 +59,75 @@ export function buildTextPanel(): { element: HTMLElement; cleanup: () => void } 
     btn.innerHTML = item.icon;
     btn.addEventListener("click", () => item.action());
     fontRow.appendChild(btn);
+  }
+
+  // Text Case split button
+  let caseDropdownOpen = false;
+  const caseWrap = document.createElement("div");
+  caseWrap.className = "split-btn-wrap";
+
+  const caseBtn = document.createElement("button");
+  caseBtn.className = "ribbon-icon-btn";
+  caseBtn.title = "Change Text Case (cycle)";
+  caseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15h6l-3-8z"/><path d="M1 19h10"/><path d="M14 8h4a2 2 0 0 1 0 4h-4v4h4a2 2 0 0 1 0 4h-4"/></svg>`;
+  caseBtn.addEventListener("click", () => transformSelection("cycle"));
+
+  const caseArrow = document.createElement("button");
+  caseArrow.className = "split-arrow";
+  caseArrow.title = "Text case options";
+  caseArrow.innerHTML = ARROW_SVG;
+  caseArrow.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const was = caseDropdownOpen;
+    closeCaseDropdown();
+    if (!was) showCaseDropdown();
+  });
+
+  caseWrap.appendChild(caseBtn);
+  caseWrap.appendChild(caseArrow);
+  fontRow.appendChild(caseWrap);
+
+  function closeCaseDropdown() {
+    caseDropdownOpen = false;
+    const dd = caseWrap.querySelector(".split-dropdown");
+    if (dd) dd.remove();
+  }
+
+  function showCaseDropdown() {
+    caseDropdownOpen = true;
+    const dd = document.createElement("div");
+    dd.className = "split-dropdown open";
+    dd.setAttribute("role", "menu");
+
+    const options = [
+      { label: "CAPITALIZED", value: "upper" },
+      { label: "Title Case", value: "title" },
+      { label: "lower case", value: "lower" },
+      { label: "snake_case", value: "snake" },
+    ];
+
+    for (const opt of options) {
+      const item = document.createElement("button");
+      item.className = "split-dropdown-item";
+      item.textContent = opt.label;
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        transformSelection(opt.value);
+        closeCaseDropdown();
+      });
+      dd.appendChild(item);
+    }
+
+    caseWrap.appendChild(dd);
+    positionDropdown(dd);
+
+    const onClickOutside = (ev: MouseEvent) => {
+      if (!caseWrap.contains(ev.target as Node)) {
+        closeCaseDropdown();
+        document.removeEventListener("mousedown", onClickOutside);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
   }
 
   wrapper.appendChild(createRibbonSection("Font", fontRow));
