@@ -224,7 +224,7 @@ function handleEditorCommand(e: Event) {
           const pos = doc.line(ln).from;
           editorView.dispatch({
             selection: { anchor: pos },
-            scrollIntoView: true,
+            effects: EditorView.scrollIntoView(pos, { y: "start", yMargin: 50 }),
           });
           editorView.focus();
           return;
@@ -755,6 +755,29 @@ function createEditor(container: HTMLElement, content: string) {
         return true;
       }),
       EditorView.lineWrapping,
+      // Hard line break workaround: {empty} + acts as "split line here"
+      EditorView.updateListener.of((update) => {
+        if (!update.docChanged) return;
+        const doc = update.state.doc;
+        const changes: Array<{ from: number; to: number; insert: string }> = [];
+        update.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+          const startLine = doc.lineAt(fromB).number;
+          const endLine = doc.lineAt(Math.min(toB, doc.length)).number;
+          for (let ln = startLine; ln <= endLine; ln++) {
+            const line = doc.line(ln);
+            const idx = line.text.indexOf("{empty} +");
+            if (idx !== -1) {
+              const before = line.text.substring(0, idx);
+              const after = line.text.substring(idx + "{empty} +".length);
+              const insert = after.trimStart() ? before + "\n" + after.trimStart() : before;
+              changes.push({ from: line.from, to: line.to, insert });
+            }
+          }
+        });
+        if (changes.length > 0) {
+          requestAnimationFrame(() => update.view.dispatch({ changes }));
+        }
+      }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           if (suppressNextDocChange) {
@@ -961,6 +984,13 @@ function showClipboardContextMenu(view: EditorView, event: MouseEvent) {
     if (text) {
       const pos = view.state.selection.main;
       view.dispatch({ changes: { from: pos.from, to: pos.to, insert: text } });
+    }
+  });
+  addItem("Paste as Raw Text", true, async () => {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      const pos = view.state.selection.main;
+      view.dispatch({ changes: { from: pos.from, to: pos.to, insert: `++${text}++` } });
     }
   });
   addItem("Convert from Markdown & Paste", true, () => pasteAsConverted(view));

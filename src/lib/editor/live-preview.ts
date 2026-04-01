@@ -3559,6 +3559,23 @@ function renderInline(text: string): string {
     return `${STEM_TOKEN}${idx}\x00`;
   });
 
+  // ── Phase 1b: Extract passthrough (+++...+++ and ++...++) before any processing ──
+  const passthroughPlaceholders: string[] = [];
+  const PASSTHROUGH_TOKEN = "\x00PASS";
+
+  // Triple plus passthrough first (greedy priority)
+  text = text.replace(/\+\+\+(.+?)\+\+\+/g, (_m, content) => {
+    const idx = passthroughPlaceholders.length;
+    passthroughPlaceholders.push(content);
+    return `${PASSTHROUGH_TOKEN}${idx}\x00`;
+  });
+  // Double plus passthrough
+  text = text.replace(/\+\+(?!\+)(.+?)(?<!\+)\+\+/g, (_m, content) => {
+    const idx = passthroughPlaceholders.length;
+    passthroughPlaceholders.push(content);
+    return `${PASSTHROUGH_TOKEN}${idx}\x00`;
+  });
+
   // ── Phase 2: Existing inline processing ──
   let result = escapeHtml(text);
 
@@ -3683,9 +3700,7 @@ function renderInline(text: string): string {
   // Pass-through macros
   result = result.replace(/pass:\[([^\]]*)\]/g, '$1');
 
-  // Pass-through (triple plus, then double plus)
-  result = result.replace(/\+\+\+(.+?)\+\+\+/g, '$1');
-  result = result.replace(/\+\+(?!\+)(.+?)(?<!\+)\+\+/g, '$1');
+  // (Passthrough extraction moved to Phase 1b)
 
   // Hard line break: trailing ` +`
   result = result.replace(/ \+$/, '<span class="cm-lp-linebreak"> +</span>');
@@ -3728,11 +3743,17 @@ function renderInline(text: string): string {
     return decoded !== entity ? escapeHtml(decoded) : entity;
   });
 
-  // ── Phase 3: Restore stem placeholders ──
+  // ── Phase 3: Restore placeholders ──
   for (let idx = 0; idx < stemPlaceholders.length; idx++) {
     result = result.replace(
       escapeHtml(`${STEM_TOKEN}${idx}\x00`),
       stemPlaceholders[idx],
+    );
+  }
+  for (let idx = 0; idx < passthroughPlaceholders.length; idx++) {
+    result = result.replace(
+      escapeHtml(`${PASSTHROUGH_TOKEN}${idx}\x00`),
+      escapeHtml(passthroughPlaceholders[idx]),
     );
   }
 
@@ -4075,7 +4096,7 @@ class TocWidget extends WidgetType {
           const targetLine = view.state.doc.line(targetLineNumber);
           view.dispatch({
             selection: { anchor: targetLine.from },
-            scrollIntoView: true,
+            effects: scrollToLineEffect.of(targetLine.from),
           });
           view.focus();
         }
@@ -4088,9 +4109,8 @@ class TocWidget extends WidgetType {
     wrap.appendChild(list);
 
     if (!this.isVirtual) {
-      attachPreviewFocusHandlers(wrap, this.lineFrom, (target) => {
-        return target.closest(".cm-lp-toc-link") !== null;
-      });
+      // TOC block should never enter edit mode — ignore all clicks
+      attachPreviewFocusHandlers(wrap, this.lineFrom, () => true);
     }
 
     return wrap;
@@ -4108,7 +4128,7 @@ class TocWidget extends WidgetType {
       );
   }
 
-  ignoreEvent(): boolean { return false; }
+  ignoreEvent(): boolean { return true; }
 }
 
 // =====================================================
@@ -5641,7 +5661,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
         }
         // Edit mode: show raw lines unchanged
       } else if (block.type === "tocmacro") {
-        if (!cursorInBlock && tocConfig.enabled && tocConfig.placement === "macro" && tocEntries.length > 0) {
+        if (tocConfig.enabled && tocConfig.placement === "macro" && tocEntries.length > 0) {
           const macroLine = doc.line(block.macroLine);
           builder.add(macroLine.from, macroLine.from, specialBlockLineDecoration);
           builder.add(macroLine.from, macroLine.to, Decoration.replace({
@@ -5813,9 +5833,19 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         closeFootnotePopup();
         closeBiblioRefPopup();
       }
+      // Detect explicit scroll-to-line requests (e.g., TOC link clicks)
+      let scrollToTarget: number | null = null;
+      for (const tr of update.transactions) {
+        for (const effect of tr.effects) {
+          if (effect.is(scrollToLineEffect)) {
+            scrollToTarget = effect.value;
+          }
+        }
+      }
+
       // Don't lock scroll when search panel is open — search needs to scroll to matches
       const searchOpen = update.view.dom.querySelector(".cm-panel.cm-search") != null;
-      const needsScrollLock = (update.selectionSet || update.focusChanged) && !update.docChanged && !searchOpen;
+      const needsScrollLock = (update.selectionSet || update.focusChanged) && !update.docChanged && !searchOpen && scrollToTarget == null;
 
       // Determine cursor jump distance to pick the right stabilization strategy
       const oldLine = update.startState.doc.lineAt(update.startState.selection.main.head).number;
@@ -5875,6 +5905,20 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         }
       }
 
+      // Explicit scroll-to-line: scroll after decorations have settled
+      if (scrollToTarget != null) {
+        const targetPos = scrollToTarget;
+        requestAnimationFrame(() => {
+          const el = getLineElementForPosition(update.view, targetPos);
+          if (el) {
+            const scrollerRect = update.view.scrollDOM.getBoundingClientRect();
+            const elRect = el.getBoundingClientRect();
+            const offset = elRect.top - scrollerRect.top - 50;
+            update.view.scrollDOM.scrollTop += offset;
+          }
+        });
+      }
+
       // Auto-open modal when cursor enters a block via editing (backspace, etc.)
       // Only when overlay editing mode is enabled
       if (overlayEditingMode && update.docChanged && !blockEditorOverlay && editorHasActiveFocus(update.view)) {
@@ -5904,6 +5948,7 @@ const livePreviewPlugin = ViewPlugin.fromClass(
 );
 
 export const refreshLivePreviewEffect = StateEffect.define<null>();
+const scrollToLineEffect = StateEffect.define<number>();
 
 export function refreshLivePreview(view: EditorView) {
   view.dispatch({
@@ -6049,6 +6094,7 @@ const livePreviewTheme = EditorView.theme({
   ".cm-lineNumbers .cm-gutterElement": {
     color: "var(--asciidoc-placeholder, #888)",
     opacity: "0.85",
+    overflow: "hidden",
   },
   "&.cm-focused .cm-lineNumbers .cm-gutterElement.cm-activeLineGutter": {
     color: "var(--asciidoc-fg, #333) !important",
@@ -6313,6 +6359,10 @@ const livePreviewTheme = EditorView.theme({
     color: "inherit",
     fontSize: "1rem",
     outline: "none",
+  },
+  "select.cm-lp-block-editor-input option": {
+    background: "var(--asciidoc-bg, #1e1e1e)",
+    color: "var(--asciidoc-fg, #ccc)",
   },
   ".cm-lp-block-editor-textarea": {
     width: "100%",

@@ -1,4 +1,4 @@
-import { wrapSelection, insertText, prefixLine, suffixLine, positionDropdown } from "../toolbar-actions";
+import { wrapSelection, insertText, prefixLine, positionDropdown } from "../toolbar-actions";
 
 const ARROW_SVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`;
 
@@ -113,13 +113,7 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
   commentBtn.addEventListener("click", () => prefixLine("// "));
   simpleRow.appendChild(commentBtn);
 
-  // Line Break — appends ` +` at end of line
-  const lineBreakBtn = document.createElement("button");
-  lineBreakBtn.className = "ribbon-labeled-btn";
-  lineBreakBtn.title = 'Hard Line Break ( +)';
-  lineBreakBtn.innerHTML = `<span class="rlb-label">Line Break</span>`;
-  lineBreakBtn.addEventListener("click", () => suffixLine(" +"));
-  simpleRow.appendChild(lineBreakBtn);
+
 
   // --- Quotes split button ---
   const quotesWrap = document.createElement("div");
