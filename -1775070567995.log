@@ -1,0 +1,300 @@
+ Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtoolsYou might need to use a local HTTP server (instead of file://): https://reactjs.org/link/react-devtools-faq
+ Environment: prod
+ appId: net.cozic.joplin-desktop
+ appType: desktop
+ 14:05:09: App: Profile directory: /home/admin/.config/joplin-desktop
+ 14:05:09: App: Root profile directory: /home/admin/.config/joplin-desktop
+ 14:05:09: Database was open successfully
+ 14:05:09: Checking for database schema update...
+ 14:05:09: Current database version Object
+ 14:05:09: Upgrading database from version 49
+ 14:05:09: New version: 49. Previously recorded version: 49
+ 14:05:09: KeychainServiceDriver.electron: KeychainService Linux backend:  kwallet6
+ 14:05:09: KeychainService: Driver unsupported:node-keytar
+ 14:05:09: KeychainService: checking if keychain supported
+ 14:05:09: KeychainService: check was already done - skipping. Supported: 1
+ 14:05:09: handleSyncStartupOperation: Processing operation: 0
+ 14:05:09: App: Client ID: e68cdd2dfae84b33b00a6ee7c64b2fc7
+ 14:05:09: models/Setting: Applying default migrations...
+ 14:05:09: e2ee/utils: activeMasterKeySanityCheck: Active key is an enabled key - nothing to do
+ 14:05:09: e2ee/utils: Trying to load 1 master keys...
+ 14:05:09: EncryptionService: Loading master key: 7c73b574be284280a92cd87cda0b6883. Make active: true
+ 14:05:09: e2ee/utils: findMasterKeyPassword: Using master password
+ 14:05:09: e2ee/utils: Loaded master keys: 1
+ 14:05:09: ResourceFetcher: Auto-add resources: Mode: always
+ 14:05:09: permanentlyDeleteOldData: Processing items older than 7776000000ms...
+ 14:05:09: ResourceFetcher: Auto-added resources: 0
+ 14:05:09: permanentlyDeleteOldData: Items to permanently delete: Object
+ 14:05:09: checkDisabledSyncItemsNotification: No errors: Hiding notification
+ 14:05:09: App: "syncInfoCache" was changed - setting up encryption related code
+ 14:05:09: e2ee/utils: activeMasterKeySanityCheck: Active key is an enabled key - nothing to do
+ 14:05:09: e2ee/utils: Trying to load 1 master keys...
+ 14:05:09: e2ee/utils: Loaded master keys: 1
+ 14:05:09: App: "syncInfoCache" was changed - setting up encryption related code
+ 14:05:09: e2ee/utils: activeMasterKeySanityCheck: Active key is an enabled key - nothing to do
+ 14:05:09: e2ee/utils: Trying to load 1 master keys...
+ 14:05:09: e2ee/utils: Loaded master keys: 1
+ 14:05:09: App: "syncInfoCache" was changed - setting up encryption related code
+ 14:05:09: e2ee/utils: activeMasterKeySanityCheck: Active key is an enabled key - nothing to do
+ 14:05:09: e2ee/utils: Trying to load 1 master keys...
+ 14:05:09: e2ee/utils: Loaded master keys: 1
+ 14:05:09: app.start: doing regular boot
+ 14:05:09: App: Setting up auto-updater service...
+ 14:05:10: OcrService: Starting background service...
+ 14:05:10: Performance: app/dispatch initial settings: End at 1.17s (took [ 0.52s ])
+ 14:05:10: App: "syncInfoCache" was changed - setting up encryption related code
+ 14:05:10: e2ee/utils: activeMasterKeySanityCheck: Active key is an enabled key - nothing to do
+ 14:05:10: e2ee/utils: Trying to load 1 master keys...
+ 14:05:10: e2ee/utils: Loaded master keys: 1
+ 14:05:10: App: "syncInfoCache" was changed - setting up encryption related code
+ 14:05:10: e2ee/utils: activeMasterKeySanityCheck: Active key is an enabled key - nothing to do
+ 14:05:10: e2ee/utils: Trying to load 1 master keys...
+ 14:05:10: e2ee/utils: Loaded master keys: 1
+ 14:05:10: App: "syncInfoCache" was changed - setting up encryption related code
+ 14:05:10: e2ee/utils: activeMasterKeySanityCheck: Active key is an enabled key - nothing to do
+ 14:05:10: e2ee/utils: Trying to load 1 master keys...
+ 14:05:10: e2ee/utils: Loaded master keys: 1
+ 14:05:10: OcrService: Found 0 resources to process...
+ 14:05:10: RevisionService: runInBackground: Starting background service with revision collection interval 600000
+ 14:05:10: Starting Clipper server on port 41184
+ 14:05:10: PluginService: Loading plugin from /home/admin/.config/joplin-desktop/cache/com.asciidoc.joplin-plugin
+ 14:05:10: PluginService: Loading plugin from /home/admin/.config/joplin-desktop/cache/com.whatever.quick-links
+ 14:05:10: PluginService: Loading plugin from /home/admin/.config/joplin-desktop/cache/io.github.jackgruber.combine-notes
+ 14:05:10: PluginService: Loading plugin from /home/admin/.config/joplin-desktop/cache/net.rmusin.joplin-table-formatter
+ 14:05:10: PluginService: Loading plugin from /home/admin/.config/joplin-desktop/cache/plugin.calebjohn.rich-markdown
+ 14:05:10: joplin.plugins: Starting plugin: com.asciidoc.joplin-plugin
+ 14:05:10: joplin.plugins: Starting plugin: com.whatever.quick-links
+ 14:05:10: joplin.plugins: Finished running onStart handler: com.whatever.quick-links (Took 25ms)
+ 14:05:10: joplin.plugins: Starting plugin: io.github.jackgruber.combine-notes
+ 14:05:10: joplin.plugins: Starting plugin: net.rmusin.joplin-table-formatter
+ 14:05:10: joplin.plugins: Finished running onStart handler: net.rmusin.joplin-table-formatter (Took 2ms)
+ 14:05:10: PluginService: Loading plugin from /home/admin/.config/joplin-desktop/cache/io.github.jackgruber.backup
+ 14:05:10: joplin.plugins: Finished running onStart handler: com.asciidoc.joplin-plugin (Took 75ms)
+ 14:05:10: joplin.plugins: Finished running onStart handler: io.github.jackgruber.combine-notes (Took 33ms)
+ 14:05:10: PluginService: Loading plugin from /home/admin/.config/joplin-desktop/cache/io.github.personalizedrefrigerator.js-draw
+ 14:05:10: Performance: app/initPluginService: End at 1.45s (took 0.25s)
+ 14:05:10: SpellCheckerServiceDriverNative: Set effective languages to "en-US"
+ 14:05:10: Performance: app/start: End at 1.47s (took [ 0.9s ])
+ 14:05:10: Performance: main: End at 1.6s (took [[ 1.04s ]])
+ 14:05:10: joplin.plugins: Starting plugin: plugin.calebjohn.rich-markdown
+ 14:05:10: DecryptionWorker: starting decryption...
+ 14:05:10: joplin.plugins: Starting plugin: io.github.jackgruber.backup
+ 14:05:10: joplin.plugins: Starting plugin: io.github.personalizedrefrigerator.js-draw
+ Unrecognized feature: 'clipboard-write=(self)'.
+setValueForProperty @ main-html.bundle.js:3849
+ 14:05:11: useFormNote: Sync has finished and note has never been changed - reloading it
+ 14:05:11: Performance: DecryptionWorker/decryptItems: End at 2.12s (took 0.44s)
+ 14:05:11: DecryptionWorker: completed decryption.
+ 14:05:11: Performance: DecryptionWorker/start: End at 2.14s (took 0.45s)
+ Got ipc-message: noteRenderComplete undefined
+ 14:05:11: Preparing scheduled sync
+ 14:05:11: joplin.plugins: Finished running onStart handler: io.github.personalizedrefrigerator.js-draw (Took 560ms)
+ 14:05:11: joplin.plugins: Finished running onStart handler: plugin.calebjohn.rich-markdown (Took 705ms)
+ 14:05:11: joplin.plugins: Finished running onStart handler: io.github.jackgruber.backup (Took 733ms)
+ 14:05:11: ShareService: Refresh share invitations:
+ 14:05:11: Starting scheduled sync
+ 14:05:11: Synchronizer: Sync: starting: Starting synchronisation to target 10... supportsAccurateTimestamp = true; supportsMultiPut = true} [1775070311843]
+ 14:05:11: Synchronizer: Indexing resources...
+ 14:05:11: ResourceService::indexNoteResources: Start
+ 14:05:11: OcrService: 0 resources have been processed.
+ 14:05:11: Performance: ResourceService/indexNoteResources: End at 2.91s (took 130.2ms)
+ 14:05:11: ResourceService::indexNoteResources: Completed
+ Got ipc-message: noteRenderComplete undefined
+ 14:05:12: EditorPluginHandler: emitActivationCheck: responses: Object
+ useHtmlLoader: isReady false
+ 14:05:12: EditorPluginHandler: emitUpdate: plugin-view-com.asciidoc.joplin-plugin-asciidoc-editor-default
+ 14:05:12: PostMessageService: Cannot receive message because no viewMessageHandler was found Object
+log @ main-html.bundle.js:21
+ 14:05:12: ShareService: Refreshed shares: Object
+ useHtmlLoader: message Object
+ useHtmlLoader: message Object
+ useHtmlLoader: message Object
+ useHtmlLoader: isReady true
+ useHtmlLoader: setHtml 02733cbc207541dac913ea23baa54876
+ 14:05:12: Performance: ShareService/maintenance: End at 3.2s (took [[ 2.01s ]])
+ useHtmlLoader: message Object
+ useHtmlLoader: message Object
+ 14:05:12: ShareService: Refresh share invitations:
+ 14:05:12: ShareService: Refreshed shares: Object
+ 14:05:12: Performance: ShareService/maintenance: End at 3.61s (took [ 0.7s ])
+ useHtmlLoader: message Object
+ useHtmlLoader: message Object
+ 14:05:13: Synchronizer: Sync target remote info: Object
+ 14:05:13: Synchronizer: Sync target is already setup - checking it...
+ 14:05:13: Synchronizer: Sync target local info: Object
+ 14:05:13: userFetcher: Got user: Object
+ 14:05:14: Synchronizer: supportsDeltaWithItems =  false
+ 14:05:14: Synchronizer: Sync: fetchingTotal: Fetching delta items from sync target
+ 14:05:14: Synchronizer: Sync: fetchingProcessed: Processing fetched item
+ 14:05:14: Synchronizer: Sync: finished: Synchronisation finished [1775070311843]
+ 14:05:14: Synchronizer: Operations completed: 
+ 14:05:14: Synchronizer: fetchingTotal: 1
+ 14:05:14: Synchronizer: fetchingProcessed: 1
+ 14:05:14: Synchronizer: Total folders: 69
+ 14:05:14: Synchronizer: Total notes: 268
+ 14:05:14: Synchronizer: Total resources: 2008
+ 14:05:14: checkDisabledSyncItemsNotification: No errors: Hiding notification
+ 14:05:14: Updating all notifications...
+ 14:05:14: Garbage collecting alarms...
+ 14:05:14: RevisionService: maintenance: Starting...
+ 14:05:14: RevisionService: maintenance: Service is enabled
+ 14:05:14: RevisionService: collectRevisions: Created revisions for 1 notes
+ 14:05:14: RevisionService: maintenance: Done in 123ms
+ 14:05:15: DecryptionWorker: starting decryption...
+ 14:05:15: DecryptionWorker: completed decryption.
+ 14:05:19: SearchEngine: Updating FTS table...
+ 14:05:19: Updating items_normalized from Object
+ 14:05:19: SearchEngine: Updated FTS table in 2ms. Inserted: 0. Deleted: 0
+ 14:05:19: Performance: SearchEngine/syncTables: End at 10.73s (took 102.7ms)
+ 14:05:34: SearchEngine: Updating FTS table...
+ 14:05:34: Updating items_normalized from Object
+ 14:05:34: SearchEngine: Updated FTS table in 25ms. Inserted: 1. Deleted: 0
+ 14:05:34: Performance: SearchEngine/syncTables: End at 25.92s (took 126.4ms)
+ 14:05:40: ResourceService::indexNoteResources: Start
+ 14:05:40: Performance: ResourceService/indexNoteResources: End at 31.3s (took 112.7ms)
+ 14:05:40: ResourceService::indexNoteResources: Completed
+ 14:05:40: ResourceService::deleteOrphanResources:
+ 14:05:49: SearchEngine: Updating FTS table...
+ 14:05:49: Updating items_normalized from Object
+ 14:05:49: SearchEngine: Updated FTS table in 23ms. Inserted: 1. Deleted: 0
+ 14:05:49: Performance: SearchEngine/syncTables: End at 40.34s (took 123.5ms)
+ 14:05:54: Preparing scheduled sync
+ 14:05:54: Starting scheduled sync
+ 14:05:54: Synchronizer: Sync: starting: Starting synchronisation to target 10... supportsAccurateTimestamp = true; supportsMultiPut = true} [1775070354281]
+ 14:05:54: Synchronizer: Indexing resources...
+ 14:05:54: ResourceService::indexNoteResources: Start
+ 14:05:54: Performance: ResourceService/indexNoteResources: End at 45.32s (took 101.5ms)
+ 14:05:54: ResourceService::indexNoteResources: Completed
+ 14:05:55: ShareService: Refresh share invitations:
+ 14:05:55: ShareService: Refreshed shares: Object
+ 14:05:55: Performance: ShareService/maintenance: End at 46.49s (took [[ 1.17s ]])
+ 14:05:56: Synchronizer: Sync target remote info: Object
+ 14:05:56: Synchronizer: Sync target is already setup - checking it...
+ 14:05:56: Synchronizer: Sync target local info: Object
+ 14:05:57: Synchronizer: Sync: updateRemote: local has changes: Note: (Local 8575051919904043a636da4489688b9c): (Remote 8575051919904043a636da4489688b9c.md)
+ 14:05:59: Synchronizer: Sync: createRemote: remote does not exist, and local is new and has never been synced: Revision: (Local 09ba8c6d39ee41e18c5dccbbd2bfebd4)
+ 14:05:59: Synchronizer: TaskQueue.stop: syncDownload: waiting for tasks to complete: 0
+ 14:05:59: Synchronizer: TaskQueue.stop: syncDownload: Done, waited for 0
+ 14:05:59: Synchronizer: Sync: finished: Synchronisation finished [1775070354281]
+ 14:05:59: Synchronizer: Operations completed: 
+ 14:05:59: Synchronizer: updateRemote: 1
+ 14:05:59: Synchronizer: createRemote: 1
+ 14:05:59: Synchronizer: Total folders: 69
+ 14:05:59: Synchronizer: Total notes: 268
+ 14:05:59: Synchronizer: Total resources: 2008
+ 14:05:59: checkDisabledSyncItemsNotification: No errors: Hiding notification
+ 14:06:04: SearchEngine: Updating FTS table...
+ 14:06:04: Updating items_normalized from Object
+ 14:06:04: SearchEngine: Updated FTS table in 2ms. Inserted: 0. Deleted: 0
+ 14:06:04: Performance: SearchEngine/syncTables: End at 55.42s (took 102.4ms)
+panel.js:2 Uncaught 
+Logger.ts:317 14:06:17: SearchEngine: Updating FTS table...
+Logger.ts:317 14:06:17: Updating items_normalized from Object
+Logger.ts:317 14:06:17: SearchEngine: Updated FTS table in 34ms. Inserted: 1. Deleted: 0
+Logger.ts:317 14:06:17: Performance: SearchEngine/syncTables: End at 68.4s (took 134.1ms)
+Logger.ts:317 14:06:28: SearchEngine: Updating FTS table...
+Logger.ts:317 14:06:29: Updating items_normalized from Object
+Logger.ts:317 14:06:29: SearchEngine: Updated FTS table in 37ms. Inserted: 1. Deleted: 0
+Logger.ts:317 14:06:29: Performance: SearchEngine/syncTables: End at 79.97s (took 137.1ms)
+Logger.ts:317 14:06:33: Preparing scheduled sync
+Logger.ts:317 14:06:33: Starting scheduled sync
+Logger.ts:317 14:06:33: Synchronizer: Sync: starting: Starting synchronisation to target 10... supportsAccurateTimestamp = true; supportsMultiPut = true} [1775070393894]
+Logger.ts:317 14:06:33: Synchronizer: Indexing resources...
+Logger.ts:317 14:06:33: ResourceService::indexNoteResources: Start
+Logger.ts:317 14:06:34: Performance: ResourceService/indexNoteResources: End at 84.96s (took 127.3ms)
+Logger.ts:317 14:06:34: ResourceService::indexNoteResources: Completed
+Logger.ts:317 14:06:34: ShareService: Refresh share invitations:
+Logger.ts:317 14:06:35: ShareService: Refreshed shares: Object
+Logger.ts:317 14:06:35: Performance: ShareService/maintenance: End at 86.12s (took [[ 1.16s ]])
+Logger.ts:317 14:06:35: Synchronizer: Sync target remote info: Object
+Logger.ts:317 14:06:35: Synchronizer: Sync target is already setup - checking it...
+Logger.ts:317 14:06:35: Synchronizer: Sync target local info: Object
+Logger.ts:317 14:06:37: Synchronizer: Sync: updateRemote: local has changes: Note: (Local 8575051919904043a636da4489688b9c): (Remote 8575051919904043a636da4489688b9c.md)
+Logger.ts:317 14:06:37: Synchronizer: TaskQueue.stop: syncDownload: waiting for tasks to complete: 0
+Logger.ts:317 14:06:37: Synchronizer: TaskQueue.stop: syncDownload: Done, waited for 0
+Logger.ts:317 14:06:37: Synchronizer: Sync: finished: Synchronisation finished [1775070393894]
+Logger.ts:317 14:06:37: Synchronizer: Operations completed: 
+Logger.ts:317 14:06:37: Synchronizer: updateRemote: 1
+Logger.ts:317 14:06:37: Synchronizer: Total folders: 69
+Logger.ts:317 14:06:37: Synchronizer: Total notes: 268
+Logger.ts:317 14:06:37: Synchronizer: Total resources: 2008
+Logger.ts:317 14:06:37: checkDisabledSyncItemsNotification: No errors: Hiding notification
+Logger.ts:317 14:06:44: SearchEngine: Updating FTS table...
+Logger.ts:317 14:06:44: Updating items_normalized from Object
+Logger.ts:317 14:06:44: SearchEngine: Updated FTS table in 1ms. Inserted: 0. Deleted: 0
+Logger.ts:317 14:06:44: Performance: SearchEngine/syncTables: End at 95.06s (took 102.6ms)
+useHtmlLoader.ts:19 useHtmlLoader: message Object
+Logger.ts:317 14:08:38: SearchEngine: Updating FTS table...
+Logger.ts:317 14:08:38: Updating items_normalized from Object
+Logger.ts:317 14:08:38: SearchEngine: Updated FTS table in 29ms. Inserted: 1. Deleted: 0
+Logger.ts:317 14:08:38: Performance: SearchEngine/syncTables: End at 209.18s (took 128.9ms)
+Logger.ts:317 14:08:43: Preparing scheduled sync
+Logger.ts:317 14:08:43: Starting scheduled sync
+Logger.ts:317 14:08:43: Synchronizer: Sync: starting: Starting synchronisation to target 10... supportsAccurateTimestamp = true; supportsMultiPut = true} [1775070523114]
+Logger.ts:317 14:08:43: Synchronizer: Indexing resources...
+Logger.ts:317 14:08:43: ResourceService::indexNoteResources: Start
+Logger.ts:317 14:08:43: Performance: ResourceService/indexNoteResources: End at 214.17s (took 116.9ms)
+Logger.ts:317 14:08:43: ResourceService::indexNoteResources: Completed
+Logger.ts:317 14:08:44: ShareService: Refresh share invitations:
+Logger.ts:317 14:08:44: ShareService: Refreshed shares: Object
+Logger.ts:317 14:08:44: Performance: ShareService/maintenance: End at 215.66s (took [[ 1.49s ]])
+Logger.ts:317 14:08:45: Synchronizer: Sync target remote info: Object
+Logger.ts:317 14:08:45: Synchronizer: Sync target is already setup - checking it...
+Logger.ts:317 14:08:45: Synchronizer: Sync target local info: Object
+Logger.ts:317 14:08:45: Synchronizer: Sync target info differs between local and remote - merging infos:  Object
+Logger.ts:317 14:08:45: App: "syncInfoCache" was changed - setting up encryption related code
+Logger.ts:317 14:08:45: e2ee/utils: activeMasterKeySanityCheck: Active key is an enabled key - nothing to do
+Logger.ts:317 14:08:45: e2ee/utils: Trying to load 1 master keys...
+Logger.ts:317 14:08:45: EncryptionService: Loading master key: 7c73b574be284280a92cd87cda0b6883. Make active: true
+Logger.ts:317 14:08:45: e2ee/utils: findMasterKeyPassword: Using master password
+Logger.ts:317 14:08:45: e2ee/utils: Loaded master keys: 1
+Logger.ts:317 14:08:46: DecryptionWorker: starting decryption...
+Logger.ts:317 14:08:46: DecryptionWorker: completed decryption.
+Logger.ts:317 14:08:46: Synchronizer: Sync: updateRemote: local has changes: Note: (Local 8575051919904043a636da4489688b9c): (Remote 8575051919904043a636da4489688b9c.md)
+Logger.ts:317 14:08:47: Synchronizer: TaskQueue.stop: syncDownload: waiting for tasks to complete: 0
+Logger.ts:317 14:08:47: Synchronizer: TaskQueue.stop: syncDownload: Done, waited for 0
+Logger.ts:317 14:08:47: Synchronizer: Sync: finished: Synchronisation finished [1775070523114]
+Logger.ts:317 14:08:47: Synchronizer: Operations completed: 
+Logger.ts:317 14:08:47: Synchronizer: updateRemote: 1
+Logger.ts:317 14:08:47: Synchronizer: Total folders: 69
+Logger.ts:317 14:08:47: Synchronizer: Total notes: 268
+Logger.ts:317 14:08:47: Synchronizer: Total resources: 2008
+Logger.ts:317 14:08:47: checkDisabledSyncItemsNotification: No errors: Hiding notification
+Logger.ts:317 14:08:53: SearchEngine: Updating FTS table...
+Logger.ts:317 14:08:53: Updating items_normalized from Object
+Logger.ts:317 14:08:53: SearchEngine: Updated FTS table in 7ms. Inserted: 0. Deleted: 0
+Logger.ts:317 14:08:53: Performance: SearchEngine/syncTables: End at 224.28s (took 107.6ms)
+Logger.ts:317 14:08:55: Preparing scheduled sync
+Logger.ts:317 14:08:55: Starting scheduled sync
+Logger.ts:317 14:08:55: Synchronizer: Sync: starting: Starting synchronisation to target 10... supportsAccurateTimestamp = true; supportsMultiPut = true} [1775070535244]
+Logger.ts:317 14:08:55: Synchronizer: Indexing resources...
+Logger.ts:317 14:08:55: ResourceService::indexNoteResources: Start
+Logger.ts:317 14:08:55: Performance: ResourceService/indexNoteResources: End at 226.28s (took 101.8ms)
+Logger.ts:317 14:08:55: ResourceService::indexNoteResources: Completed
+Logger.ts:317 14:08:55: ShareService: Refresh share invitations:
+Logger.ts:317 14:08:56: ShareService: Refreshed shares: Object
+Logger.ts:317 14:08:56: Performance: ShareService/maintenance: End at 227.54s (took [[ 1.25s ]])
+Logger.ts:317 14:08:57: Synchronizer: Sync target remote info: Object
+Logger.ts:317 14:08:57: Synchronizer: Sync target is already setup - checking it...
+Logger.ts:317 14:08:57: Synchronizer: Sync target local info: Object
+Logger.ts:317 14:08:57: Synchronizer: TaskQueue.stop: syncDownload: waiting for tasks to complete: 0
+Logger.ts:317 14:08:57: Synchronizer: TaskQueue.stop: syncDownload: Done, waited for 0
+Logger.ts:317 14:08:58: Synchronizer: supportsDeltaWithItems =  false
+Logger.ts:317 14:08:58: Synchronizer: Sync: fetchingTotal: Fetching delta items from sync target
+Logger.ts:317 14:08:58: Synchronizer: Sync: fetchingProcessed: Processing fetched item
+Logger.ts:317 14:08:58: Synchronizer: Sync: fetchingProcessed: Processing fetched item
+Logger.ts:317 14:08:58: Synchronizer: Sync: finished: Synchronisation finished [1775070535244]
+Logger.ts:317 14:08:58: Synchronizer: Operations completed: 
+Logger.ts:317 14:08:58: Synchronizer: fetchingTotal: 2
+Logger.ts:317 14:08:58: Synchronizer: fetchingProcessed: 2
+Logger.ts:317 14:08:58: Synchronizer: Total folders: 69
+Logger.ts:317 14:08:58: Synchronizer: Total notes: 268
+Logger.ts:317 14:08:58: Synchronizer: Total resources: 2008
+Logger.ts:317 14:08:58: checkDisabledSyncItemsNotification: No errors: Hiding notification
+Logger.ts:317 14:08:59: DecryptionWorker: starting decryption...
+Logger.ts:317 14:08:59: DecryptionWorker: completed decryption.
+Logger.ts:317 14:09:05: SearchEngine: Updating FTS table...
+Logger.ts:317 14:09:05: Updating items_normalized from Object
+Logger.ts:317 14:09:05: SearchEngine: Updated FTS table in 2ms. Inserted: 0. Deleted: 0
+Logger.ts:317 14:09:05: Performance: SearchEngine/syncTables: End at 236.39s (took 102.3ms)
+useHtmlLoader.ts:19 useHtmlLoader: message Object

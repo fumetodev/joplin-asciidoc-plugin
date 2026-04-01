@@ -8,6 +8,7 @@ import { EditorView, ViewPlugin, keymap, lineNumbers, highlightActiveLine, highl
 import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches, openSearchPanel, closeSearchPanel, searchPanelOpen } from "@codemirror/search";
+import { type CompletionContext, type CompletionResult, startCompletion, completionStatus } from "@codemirror/autocomplete";
 import { bracketMatching } from "@codemirror/language";
 import { asciidocLanguage } from "./lib/editor/asciidoc-language";
 import { asciidocKeymap } from "./lib/editor/keybindings";
@@ -45,6 +46,34 @@ let spellcheckEnabled = localStorage.getItem("asciidoc-spellcheck") !== "false";
 let currentZoom = parseInt(localStorage.getItem("asciidoc-editor-zoom") || "100", 10);
 if (currentZoom < 50 || currentZoom > 150) currentZoom = 100;
 let compactSpacingEnabled = false;
+
+// ── Favorite Copies state ──
+let favoriteCopies: string[] = [];
+let favoriteCopiesEnabled = true;
+let favoriteCopiesMaxLength = 20;
+let favCopiesActive = false;
+let favCopiesTriggerPos = 0;
+
+function favoriteCopiesSource(context: CompletionContext): CompletionResult | null {
+  if (!favCopiesActive || favoriteCopies.length === 0) return null;
+  return {
+    from: favCopiesTriggerPos,
+    options: favoriteCopies.map((text) => ({
+      label: text.replace(/\n/g, "\u23CE ").slice(0, 80) + (text.length > 80 ? "\u2026" : ""),
+      detail: text.length > 80 ? `(${text.length} chars)` : undefined,
+      type: "text" as const,
+      apply: (view: any, _c: any, from: number, to: number) => {
+        view.dispatch({
+          changes: { from, to, insert: text },
+          selection: { anchor: from + text.length },
+        });
+        favCopiesActive = false;
+      },
+    })),
+    validFor: /^.*/,
+  };
+}
+
 // Sync initial state to live-preview module
 setOverlayEditingEnabled(overlayEditingEnabled);
 setCompactSpacing(compactSpacingEnabled);
@@ -539,7 +568,7 @@ function createEditor(container: HTMLElement, content: string) {
       placeholder("Write AsciiDoc here..."),
       asciidocLanguage(),
       spellcheckCompartment.of(spellcheckEnabled ? spellcheckExtension() : []),
-      wikiLinkCompletion(),
+      wikiLinkCompletion([favoriteCopiesSource]),
       keymap.of([
         ...asciidocKeymap,
         ...defaultKeymap,
@@ -610,7 +639,31 @@ function createEditor(container: HTMLElement, content: string) {
           });
           return true;
         }},
+        // Favorite Copies: copy + add to list
+        { key: "Mod-Shift-c", run: (view) => {
+          if (!favoriteCopiesEnabled) return false;
+          const sel = view.state.selection.main;
+          if (sel.from === sel.to) return false;
+          const text = view.state.sliceDoc(sel.from, sel.to);
+          navigator.clipboard.writeText(text);
+          favoriteCopies = [text, ...favoriteCopies.filter(t => t !== text)].slice(0, favoriteCopiesMaxLength);
+          return true;
+        }},
+        // Favorite Copies: paste from list
+        { key: "Mod-Shift-v", run: (view) => {
+          if (!favoriteCopiesEnabled || favoriteCopies.length === 0) return false;
+          favCopiesActive = true;
+          favCopiesTriggerPos = view.state.selection.main.head;
+          startCompletion(view);
+          return true;
+        }},
       ])),
+      // Clear Favorite Copies autocomplete flag when completion closes
+      EditorView.updateListener.of((update) => {
+        if (favCopiesActive && completionStatus(update.state) === null) {
+          favCopiesActive = false;
+        }
+      }),
       // Prevent right-click from losing selection (so context menu works on raw text)
       EditorView.domEventHandlers({
         mousedown(event: MouseEvent, view: EditorView) {
@@ -914,6 +967,15 @@ function handleMessage(msg: any) {
   if (msg.type === "updateCompactSpacing") {
     compactSpacingEnabled = msg.value === true;
     updateCompactSpacing();
+  }
+
+  if (msg.type === "updateFavoriteCopies") {
+    favoriteCopiesEnabled = msg.enabled !== false;
+    favoriteCopiesMaxLength = Math.max(1, Math.min(100, msg.maxLength || 20));
+    // Trim list if max length was reduced
+    if (favoriteCopies.length > favoriteCopiesMaxLength) {
+      favoriteCopies = favoriteCopies.slice(0, favoriteCopiesMaxLength);
+    }
   }
 }
 
@@ -1246,6 +1308,14 @@ function init() {
     if (response.compactSpacing != null) {
       compactSpacingEnabled = response.compactSpacing === true;
       updateCompactSpacing();
+    }
+
+    // Apply Favorite Copies settings
+    if (response.favoriteCopies != null) {
+      favoriteCopiesEnabled = response.favoriteCopies !== false;
+    }
+    if (response.favoriteCopiesMaxLength != null) {
+      favoriteCopiesMaxLength = Math.max(1, Math.min(100, response.favoriteCopiesMaxLength));
     }
 
     // Load initial note if available

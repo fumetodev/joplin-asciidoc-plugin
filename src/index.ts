@@ -908,6 +908,24 @@ async function registerSettings() {
       label: "Adding New Words Adds Their Plural/Singular",
       description: "When enabled, the spell-checker right-click menu includes options to add a word along with its plural or singular form.",
     },
+    "asciidoc.favoriteCopies": {
+      section: "asciidoc",
+      public: true,
+      type: 3, // Boolean
+      value: true,
+      label: "Favorite Copies (Ctrl+Shift+C / Ctrl+Shift+V)",
+      description: "When enabled, Ctrl+Shift+C copies text and adds it to a session-only favorites list. Ctrl+Shift+V opens an autocomplete dropdown to paste from that list.",
+    },
+    "asciidoc.favoriteCopiesMaxLength": {
+      section: "asciidoc",
+      public: true,
+      type: 1, // Int
+      value: 20,
+      minimum: 1,
+      maximum: 100,
+      label: "Favorite Copies Max List Size",
+      description: "Maximum number of items to keep in the Favorite Copies list (1-100).",
+    },
   });
 }
 
@@ -985,6 +1003,8 @@ joplin.plugins.register({
             const response: any = {
               isDark: await joplin.shouldUseDarkColors(),
               compactSpacing: await joplin.settings.value("asciidoc.compactSpacing") === true,
+              favoriteCopies: await joplin.settings.value("asciidoc.favoriteCopies") !== false,
+              favoriteCopiesMaxLength: parseInt(String(await joplin.settings.value("asciidoc.favoriteCopiesMaxLength") || 20), 10),
             };
             try {
               const note = await joplin.workspace.selectedNote();
@@ -1280,6 +1300,13 @@ joplin.plugins.register({
             editors.postMessage(handle, {
               type: "updateCompactSpacing",
               value: value === true,
+            });
+          }
+          if (event.keys.includes("asciidoc.favoriteCopies") || event.keys.includes("asciidoc.favoriteCopiesMaxLength")) {
+            editors.postMessage(handle, {
+              type: "updateFavoriteCopies",
+              enabled: await joplin.settings.value("asciidoc.favoriteCopies") !== false,
+              maxLength: parseInt(String(await joplin.settings.value("asciidoc.favoriteCopiesMaxLength") || 20), 10),
             });
           }
         });

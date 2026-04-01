@@ -4,6 +4,9 @@ import {
   autocompletion,
   completionKeymap,
   startCompletion,
+  acceptCompletion,
+  moveCompletionSelection,
+  completionStatus,
 } from "@codemirror/autocomplete";
 import { EditorView, keymap } from "@codemirror/view";
 import { searchNotes, getNoteSections } from "../ipc";
@@ -173,14 +176,30 @@ const wikiLinkTrigger = EditorView.inputHandler.of((view, from, _to, text) => {
 /**
  * Export the complete wiki-link autocomplete extension.
  */
-export function wikiLinkCompletion() {
+export function wikiLinkCompletion(additionalSources: Array<(ctx: CompletionContext) => CompletionResult | null | Promise<CompletionResult | null>> = []) {
   return [
     autocompletion({
-      override: [wikiLinkCompletionSource],
+      override: [wikiLinkCompletionSource, ...additionalSources],
       activateOnTyping: true,
       icons: true,
     }),
-    keymap.of(completionKeymap),
+    keymap.of([
+      ...completionKeymap,
+      // Accept completion with Right arrow
+      { key: "ArrowRight", run: (view: EditorView) => {
+        if (completionStatus(view.state) !== null) return acceptCompletion(view);
+        return false;
+      }},
+      // Navigate completion with Tab (down) / Shift-Tab (up) — only when completion is open
+      { key: "Tab", run: (view: EditorView) => {
+        if (completionStatus(view.state) !== null) return moveCompletionSelection(true)(view);
+        return false;
+      }},
+      { key: "Shift-Tab", run: (view: EditorView) => {
+        if (completionStatus(view.state) !== null) return moveCompletionSelection(false)(view);
+        return false;
+      }},
+    ]),
     wikiLinkTrigger,
   ];
 }
