@@ -35,6 +35,7 @@ let currentSentinel = "";
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let isDirty = false;
 let suppressNextDocChange = false; // Prevent save-back loop when loading new note
+let lastSavedContent: string | null = null; // Track last saved content to detect echo-back updates
 const SAVE_DEBOUNCE_MS = 2000;
 
 const lineNumbersCompartment = new Compartment();
@@ -151,6 +152,7 @@ async function doSave() {
   // Capture state before async operation to prevent race conditions
   const noteId = currentNoteId;
   const content = editorView.state.doc.toString();
+  lastSavedContent = content; // Track what we sent so we can detect echo-back
   const body = appendSentinel(content, currentSentinel);
   try {
     await saveNoteContent(noteId, body);
@@ -943,6 +945,24 @@ function handleMessage(msg: any) {
     }
 
     if (editorView) {
+      const currentContent = editorView.state.doc.toString();
+
+      // Skip replacement if content is identical (no-op)
+      if (content === currentContent) {
+        resolveResources(content);
+        return;
+      }
+
+      // Skip if this is our own save echoing back via onUpdate but the user
+      // has continued typing since — replacing with stale content would crash
+      // CodeMirror (position out of range for changeset).
+      if (id === currentNoteId && (content === lastSavedContent || isDirty || saveTimer)) {
+        lastSavedContent = null;
+        resolveResources(content);
+        return;
+      }
+      lastSavedContent = null;
+
       suppressNextDocChange = true; // Don't trigger save for this programmatic update
       editorView.dispatch({
         changes: { from: 0, to: editorView.state.doc.length, insert: content },

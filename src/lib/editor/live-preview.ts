@@ -365,11 +365,18 @@ function measureElementTopRelativeToScroller(view: EditorView, element: HTMLElem
 }
 
 function getLineElementForPosition(view: EditorView, lineFrom: number): HTMLElement | null {
-  const domAtPos = view.domAtPos(lineFrom);
-  const baseNode = domAtPos.node instanceof HTMLElement
-    ? domAtPos.node
-    : domAtPos.node.parentElement;
-  return baseNode?.closest<HTMLElement>(".cm-line") ?? null;
+  try {
+    const domAtPos = view.domAtPos(lineFrom);
+    const baseNode = domAtPos.node instanceof HTMLElement
+      ? domAtPos.node
+      : domAtPos.node.parentElement;
+    return baseNode?.closest<HTMLElement>(".cm-line") ?? null;
+  } catch {
+    // domAtPos throws "No tile at position X" when the position is outside the
+    // view's currently-rendered block range (e.g., after a doc change before the
+    // view has fully rebuilt its DOM tiles). All callers handle null gracefully.
+    return null;
+  }
 }
 
 function capturePreviewAnchorTop(view: EditorView, target: HTMLElement | null, lineFrom: number): number | null {
@@ -5899,10 +5906,16 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         // preventing padding flicker when the user starts typing.
         const remapped = new Map<number, number>();
         for (const [oldFrom, height] of this.heightCache.lineHeights) {
-          const newFrom = update.changes.mapPos(oldFrom, 1);
-          // Only keep entries where the position is still valid
-          if (newFrom >= 0 && newFrom <= update.state.doc.length) {
-            remapped.set(newFrom, height);
+          try {
+            const newFrom = update.changes.mapPos(oldFrom, 1);
+            // Only keep entries where the position is still valid
+            if (newFrom >= 0 && newFrom <= update.state.doc.length) {
+              remapped.set(newFrom, height);
+            }
+          } catch {
+            // mapPos throws RangeError when oldFrom is outside the changeset's
+            // source range (e.g., stale cache key after a large doc replacement).
+            // Silently drop the entry — it will be re-measured.
           }
         }
         this.heightCache.lineHeights = remapped;
