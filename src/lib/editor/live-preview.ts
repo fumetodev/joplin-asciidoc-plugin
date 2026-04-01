@@ -165,7 +165,7 @@ function createPreviewHeightCache(): PreviewHeightCache {
 }
 
 function measureElementHeightPx(element: HTMLElement): number {
-  return Math.ceil(element.getBoundingClientRect().height);
+  return element.getBoundingClientRect().height;
 }
 
 function measureRawLineHeightPx(view: EditorView): number {
@@ -221,6 +221,10 @@ function attachPreviewFocusHandlers(
 
     const target = e.target as HTMLElement;
     if (shouldIgnoreTarget(target)) return;
+
+    // Capture character offset in the rendered text BEFORE consuming the event
+    pendingPreviewClickCharOffset = getVisibleTextOffset(element, e.clientX, e.clientY);
+    pendingPreviewClickVisibleText = element.textContent ?? null;
 
     consumeEvent(e);
     const view = getEditorViewFromElement(element);
@@ -303,6 +307,8 @@ function consumeEvent(event: Event) {
 
 let pendingPreviewClickFrom: number | null = null;
 let pendingPreviewClickAnchorTop: number | null = null;
+let pendingPreviewClickCharOffset: number | null = null;
+let pendingPreviewClickVisibleText: string | null = null;
 let blockEditorOverlay: HTMLDivElement | null = null;
 let overlayEditingMode = false;
 
@@ -313,6 +319,43 @@ export function setOverlayEditingEnabled(enabled: boolean) {
 function clearPendingPreviewClick() {
   pendingPreviewClickFrom = null;
   pendingPreviewClickAnchorTop = null;
+  pendingPreviewClickCharOffset = null;
+  pendingPreviewClickVisibleText = null;
+}
+
+/** Get the visible-text character offset at a click point within an element. */
+function getVisibleTextOffset(container: HTMLElement, x: number, y: number): number | null {
+  const range = document.caretRangeFromPoint(x, y);
+  if (!range || !container.contains(range.startContainer)) return null;
+
+  let offset = 0;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (node === range.startContainer) {
+      return offset + range.startOffset;
+    }
+    offset += node.textContent?.length ?? 0;
+  }
+  return null;
+}
+
+/**
+ * Map a visible-text offset to a raw-text offset by aligning characters.
+ * Formatting markers in the raw text (not present in the visible text) are skipped.
+ */
+function mapVisibleOffsetToRaw(rawText: string, visibleText: string, visibleOffset: number): number {
+  let ri = 0;
+  let vi = 0;
+  while (vi < visibleOffset && ri < rawText.length) {
+    if (vi < visibleText.length && rawText[ri] === visibleText[vi]) {
+      ri++;
+      vi++;
+    } else {
+      ri++;
+    }
+  }
+  return ri;
 }
 
 function measureElementTopRelativeToScroller(view: EditorView, element: HTMLElement): number {
@@ -386,12 +429,23 @@ function preserveViewportAfterUpdate(view: EditorView, lineFrom: number, anchorT
 
 function focusPreviewLine(view: EditorView, lineFrom: number) {
   const anchorTop = pendingPreviewClickAnchorTop;
+  const charOffset = pendingPreviewClickCharOffset;
+  const visibleText = pendingPreviewClickVisibleText;
   const { scrollTop, scrollLeft } = view.scrollDOM;
   window.getSelection()?.removeAllRanges();
   clearPendingPreviewClick();
   const line = view.state.doc.lineAt(lineFrom);
+
+  // Determine cursor position: map the clicked character offset to a raw text position
+  let anchor = line.to;
+  if (charOffset != null && visibleText != null) {
+    const rawText = line.text;
+    const rawOffset = mapVisibleOffsetToRaw(rawText, visibleText, charOffset);
+    anchor = line.from + Math.min(rawOffset, rawText.length);
+  }
+
   view.dispatch({
-    selection: { anchor: line.to },
+    selection: { anchor },
   });
   view.focus();
   preserveViewportAfterUpdate(view, lineFrom, anchorTop, scrollTop, scrollLeft);
@@ -5245,6 +5299,12 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
 
   // Detect :toc: document attribute and collect TOC entries
   const tocConfig = detectTocConfig(doc);
+  // If toc::[] macro exists in the document, override placement to "macro"
+  // (user clearly intends macro placement even if :toc: value doesn't say "macro")
+  const hasTocMacro = blocks.some(b => b.type === "tocmacro");
+  if (tocConfig.enabled && tocConfig.placement !== "macro" && hasTocMacro) {
+    tocConfig.placement = "macro";
+  }
   let tocEntries: TocEntry[] = [];
   let tocTargetLine = -1; // line number to replace with TOC widget (for auto/preamble)
   if (tocConfig.enabled) {
@@ -5738,9 +5798,36 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           }
         }
       } else if (isList) {
-        // Lists: apply the same padding as rendered list lines so each raw line
-        // has the same vertical height as its rendered counterpart.
         builder.add(line.from, line.from, listLineDecoration);
+        const cachedHeight = heightCache.lineHeights.get(line.from);
+        if (cachedHeight && cachedHeight > rawBaseHeightPx + MIN_HEIGHT_DELTA_PX) {
+          builder.add(line.from, line.from, Decoration.line({
+            attributes: { style: `min-height:${cachedHeight}px;box-sizing:border-box` },
+          }));
+        }
+      } else if (isParagraph) {
+        const cachedHeight = heightCache.lineHeights.get(line.from);
+        if (cachedHeight && cachedHeight > rawBaseHeightPx + MIN_HEIGHT_DELTA_PX) {
+          builder.add(line.from, line.from, Decoration.line({
+            attributes: { style: `min-height:${cachedHeight}px;box-sizing:border-box` },
+          }));
+        }
+      }
+      pendingRole = null;
+      i++;
+      continue;
+    }
+
+    // Auto/preamble TOC: target line may be empty or whitespace-only
+    if (i === tocTargetLine && tocEntries.length > 0) {
+      if (line.from < line.to) {
+        builder.add(line.from, line.to, Decoration.replace({
+          widget: new TocWidget(tocConfig.title, tocEntries, line.from, true),
+        }));
+      } else {
+        builder.add(line.from, line.from, Decoration.replace({
+          widget: new TocWidget(tocConfig.title, tocEntries, line.from, true),
+        }));
       }
       pendingRole = null;
       i++;
@@ -5748,14 +5835,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     }
 
     if (line.from === line.to) {
-      // Replace blank line with TOC widget if this is the target line for auto/preamble
-      if (i === tocTargetLine && tocEntries.length > 0) {
-        builder.add(line.from, line.from, Decoration.replace({
-          widget: new TocWidget(tocConfig.title, tocEntries, line.from, true),
-        }));
-      } else {
-        builder.add(line.from, line.from, emptyLineDecoration);
-      }
+      builder.add(line.from, line.from, emptyLineDecoration);
       pendingRole = null;
       i++;
       continue;
