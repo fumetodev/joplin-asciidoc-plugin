@@ -116,7 +116,7 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   panelToggles.className = "editor-toggles";
 
   const fullscreenLabel = document.createElement("label");
-  fullscreenLabel.className = "editor-toggle-label";
+  fullscreenLabel.className = "ribbon-toggle";
   const fullscreenCb = document.createElement("input");
   fullscreenCb.type = "checkbox";
   fullscreenCb.checked = false; // never persisted — always starts off
@@ -130,7 +130,7 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   panelToggles.appendChild(fullscreenLabel);
 
   const autoHideLabel = document.createElement("label");
-  autoHideLabel.className = "editor-toggle-label";
+  autoHideLabel.className = "ribbon-toggle";
   const autoHideCb = document.createElement("input");
   autoHideCb.type = "checkbox";
   const savedAutoHide = localStorage.getItem("asciidoc-autohide-toolbar");
