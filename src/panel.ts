@@ -645,7 +645,7 @@ function createEditor(container: HTMLElement, content: string) {
           const sel = view.state.selection.main;
           if (sel.from === sel.to) return false;
           const text = view.state.sliceDoc(sel.from, sel.to);
-          navigator.clipboard.writeText(text);
+          navigator.clipboard.writeText(text).catch(() => {});
           favoriteCopies = [text, ...favoriteCopies.filter(t => t !== text)].slice(0, favoriteCopiesMaxLength);
           return true;
         }},
