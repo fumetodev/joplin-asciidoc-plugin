@@ -24,7 +24,7 @@ module.exports = (env, argv) => {
       },
       module: {
         rules: [
-          { test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ },
+          { test: /\.ts$/, use: { loader: "ts-loader", options: { transpileOnly: true } }, exclude: /node_modules/ },
         ],
       },
       devtool: isDev ? "source-map" : false,
@@ -43,7 +43,7 @@ module.exports = (env, argv) => {
       },
       module: {
         rules: [
-          { test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ },
+          { test: /\.ts$/, use: { loader: "ts-loader", options: { transpileOnly: true } }, exclude: /node_modules/ },
           { test: /\.(aff|dic)$/, type: 'asset/source' },
         ],
       },

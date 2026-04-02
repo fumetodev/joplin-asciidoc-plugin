@@ -5607,8 +5607,8 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       } else if (block.type === "table") {
         const { headers, rows, attrs } = parseTable(doc, block.openLine, block.closeLine, block.attrLine, block.delimiter);
 
-        if (cursorInBlock) {
-          // Edit mode: first line gets the interactive table, rest are hidden
+        if (cursorInBlock && overlayEditingMode) {
+          // Overlay edit mode: first line gets the interactive table, rest are hidden
           const firstLine = doc.line(blockStart);
           builder.add(firstLine.from, firstLine.to, Decoration.replace({
             widget: new TableEditWidget(headers, rows, attrs, fromPos, toPos),
@@ -5619,6 +5619,11 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             if (line.from < line.to) {
               builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
             }
+          }
+        } else if (cursorInBlock) {
+          // Non-overlay mode: show raw AsciiDoc text
+          for (let j = blockStart; j <= blockEnd; j++) {
+            i = j;
           }
         } else {
           // Preview mode: first line gets the widget, rest are hidden
@@ -5983,12 +5988,12 @@ const livePreviewPlugin = ViewPlugin.fromClass(
       const needsScrollLock = (update.selectionSet || update.focusChanged) && !update.docChanged && !searchOpen && scrollToTarget == null;
       // Also stabilize scroll for doc changes (paste, typing, etc.) to prevent
       // decoration-induced viewport jumps when line heights change during rebuild.
-      const needsDocChangeStabilization = update.docChanged && !searchOpen && scrollToTarget == null;
-
-      // Determine cursor jump distance to pick the right stabilization strategy
+      // Skip for same-line edits (normal typing) — CM6 handles those fine on its
+      // own and the rAF measurement delta causes cumulative scroll drift.
       const oldLine = update.startState.doc.lineAt(update.startState.selection.main.head).number;
       const newLine = update.state.doc.lineAt(update.state.selection.main.head).number;
       const lineDistance = Math.abs(newLine - oldLine);
+      const needsDocChangeStabilization = update.docChanged && lineDistance > 0 && !searchOpen && scrollToTarget == null;
 
       // Capture scroll state BEFORE rebuilding decorations
       const scrollBefore = update.view.scrollDOM.scrollTop;
