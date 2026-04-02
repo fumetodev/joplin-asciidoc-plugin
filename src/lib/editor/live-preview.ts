@@ -1082,7 +1082,7 @@ function openTableBlockEditorModal(
   blockFrom: number,
   blockTo: number,
 ) {
-  const { overlay, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Table");
+  const { overlay, body, footer, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Table");
 
   const tableWidget = new TableEditWidget(headers, rows, attrs, blockFrom, blockTo, {
     liveSync: false,
@@ -1091,6 +1091,29 @@ function openTableBlockEditorModal(
   const tableEditor = tableWidget.toDOM();
   tableEditor.classList.add("cm-lp-table-edit-modal");
   body.appendChild(tableEditor);
+
+  // Scale slider
+  const initialWidth = attrs.width ? parseInt(attrs.width.replace("%", ""), 10) || 100 : 100;
+  const scaleValue = document.createElement("span");
+  scaleValue.className = "cm-lp-block-editor-range-value";
+  scaleValue.textContent = `${initialWidth}%`;
+  const scaleInput = document.createElement("input");
+  scaleInput.type = "range";
+  scaleInput.className = "cm-lp-block-editor-range";
+  scaleInput.min = "10";
+  scaleInput.max = "100";
+  scaleInput.step = "5";
+  scaleInput.value = String(initialWidth);
+  scaleInput.addEventListener("input", () => {
+    scaleValue.textContent = `${scaleInput.value}%`;
+  });
+  const scaleHeader = document.createElement("div");
+  scaleHeader.className = "cm-lp-block-editor-range-header";
+  scaleHeader.innerHTML = "<span class='cm-lp-block-editor-label'>SCALE</span>";
+  scaleHeader.appendChild(scaleValue);
+  const scaleField = document.createElement("div");
+  scaleField.className = "cm-lp-block-editor-footer-scale";
+  scaleField.append(scaleHeader, scaleInput);
 
   const deleteBtn = makeBlockEditorButton("Delete Table");
   deleteBtn.classList.add("cm-lp-block-editor-btn-danger");
@@ -1110,6 +1133,24 @@ function openTableBlockEditorModal(
   const saveBtn = makeBlockEditorButton("Save", "primary");
   saveBtn.addEventListener("click", (e) => {
     consumeEvent(e);
+    // Update the width in the attr line before serializing
+    const newWidth = parseInt(scaleInput.value, 10);
+    let rawLine = (tableEditor as any)._attrRawLine || "";
+    if (newWidth < 100) {
+      if (/width\s*=/.test(rawLine)) {
+        rawLine = rawLine.replace(/width\s*=\s*"?\d+%?"?/, `width=${newWidth}%`);
+      } else if (rawLine) {
+        rawLine = rawLine.replace(/\]$/, `,width=${newWidth}%]`);
+      } else {
+        rawLine = `[width=${newWidth}%]`;
+      }
+    } else {
+      // 100% = default, remove width attr
+      rawLine = rawLine.replace(/,?\s*width\s*=\s*"?\d+%?"?/, "");
+      rawLine = rawLine.replace(/\[,+/, "[").replace(/,+\]/, "]").replace(/,,+/g, ",");
+      if (rawLine === "[]") rawLine = "";
+    }
+    (tableEditor as any)._attrRawLine = rawLine;
     view.dispatch({
       changes: {
         from: blockFrom,
@@ -1120,6 +1161,7 @@ function openTableBlockEditorModal(
     close();
   });
 
+  footer.insertBefore(scaleField, footerRight);
   footerRight.append(cancelBtn, saveBtn);
   requestAnimationFrame(() => {
     overlay.focus();
@@ -1419,7 +1461,7 @@ function openMermaidBlockEditorModal(
   blockTo: number,
   initialWidth: number = 100,
 ) {
-  const { overlay, modal, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Mermaid Diagram");
+  const { overlay, modal, body, footer, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Mermaid Diagram");
   modal.style.width = "min(1200px, 100%)";
   // Allow the body to expand and fill the modal for the two-panel layout
   body.style.flex = "1";
@@ -1525,30 +1567,29 @@ function openMermaidBlockEditorModal(
   rebuildToolbar();
   leftPanel.appendChild(toolbarWrap);
 
-  // ── Display Scale slider ──
+  // ── Display Scale slider (built here, appended to footer later) ──
   let currentWidth = initialWidth;
-  const scaleRow = document.createElement("div");
-  scaleRow.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:8px";
-  const scaleLabel = document.createElement("span");
-  scaleLabel.textContent = "Display Scale:";
-  scaleLabel.style.cssText = "font-size:12px;font-weight:600;white-space:nowrap";
+  const scaleValue = document.createElement("span");
+  scaleValue.className = "cm-lp-block-editor-range-value";
+  scaleValue.textContent = `${initialWidth}%`;
   const scaleSlider = document.createElement("input");
   scaleSlider.type = "range";
+  scaleSlider.className = "cm-lp-block-editor-range";
   scaleSlider.min = "10";
   scaleSlider.max = "100";
   scaleSlider.step = "5";
   scaleSlider.value = String(initialWidth);
-  scaleSlider.className = "ribbon-margin-slider";
-  scaleSlider.style.flex = "1";
-  const scaleValueSpan = document.createElement("span");
-  scaleValueSpan.textContent = `${initialWidth}%`;
-  scaleValueSpan.style.cssText = "font-size:12px;min-width:3em;text-align:right";
   scaleSlider.addEventListener("input", () => {
     currentWidth = parseInt(scaleSlider.value);
-    scaleValueSpan.textContent = `${currentWidth}%`;
+    scaleValue.textContent = `${currentWidth}%`;
   });
-  scaleRow.append(scaleLabel, scaleSlider, scaleValueSpan);
-  leftPanel.appendChild(scaleRow);
+  const scaleHeader = document.createElement("div");
+  scaleHeader.className = "cm-lp-block-editor-range-header";
+  scaleHeader.innerHTML = "<span class='cm-lp-block-editor-label'>SCALE</span>";
+  scaleHeader.appendChild(scaleValue);
+  const scaleField = document.createElement("div");
+  scaleField.className = "cm-lp-block-editor-footer-scale";
+  scaleField.append(scaleHeader, scaleSlider);
 
   // ── Source textarea ──
   const sourceInput = document.createElement("textarea");
@@ -1692,12 +1733,13 @@ function openMermaidBlockEditorModal(
     closeWithCleanup();
   });
 
+  footer.insertBefore(scaleField, footerRight);
   footerRight.append(cancelBtn, saveBtn);
   requestAnimationFrame(() => { overlay.focus(); sourceInput.focus(); });
 }
 
 function openImageEditorModal(view: EditorView, info: ImageBlockInfo) {
-  const { overlay, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Image");
+  const { overlay, body, footer, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Image");
 
   let imageSource: "web" | "local" = info.options.source;
   let imagePickerError = "";
@@ -1754,7 +1796,7 @@ function openImageEditorModal(view: EditorView, info: ImageBlockInfo) {
   altInput.placeholder = "Description";
   body.appendChild(makeBlockEditorField("ALT TEXT", altInput));
 
-  // Scale slider
+  // Scale slider (appended to footer later)
   const scaleValue = document.createElement("span");
   scaleValue.className = "cm-lp-block-editor-range-value";
   const scaleInput = document.createElement("input");
@@ -1769,9 +1811,8 @@ function openImageEditorModal(view: EditorView, info: ImageBlockInfo) {
   scaleHeader.innerHTML = "<span class='cm-lp-block-editor-label'>SCALE</span>";
   scaleHeader.appendChild(scaleValue);
   const scaleField = document.createElement("div");
-  scaleField.className = "cm-lp-block-editor-field";
+  scaleField.className = "cm-lp-block-editor-footer-scale";
   scaleField.append(scaleHeader, scaleInput);
-  body.appendChild(scaleField);
 
   // Align
   const alignSelect = document.createElement("select");
@@ -1920,6 +1961,7 @@ function openImageEditorModal(view: EditorView, info: ImageBlockInfo) {
     close();
   });
 
+  footer.insertBefore(scaleField, footerRight);
   footerRight.append(cancelBtn, saveBtn);
   syncRangeLabels();
   syncTabState();
@@ -6512,6 +6554,14 @@ const livePreviewTheme = EditorView.theme({
     display: "flex",
     alignItems: "center",
     gap: "10px",
+  },
+  ".cm-lp-block-editor-footer-scale": {
+    display: "flex",
+    flexDirection: "column" as const,
+    flex: "1",
+    minWidth: "120px",
+    maxWidth: "300px",
+    margin: "0 16px",
   },
   ".cm-lp-block-editor-btn": {
     borderRadius: "8px",
