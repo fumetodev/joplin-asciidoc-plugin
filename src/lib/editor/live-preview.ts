@@ -100,7 +100,9 @@ interface DocHeaderBlockInfo {
   type: "docheader";
   startLine: number;  // first line of the header block
   endLine: number;    // last line of the header block (before blank line)
+  titleLine: number;  // line number of the = Title, or -1 if none
   title: string;      // document title (= Title line), empty if none
+  authorLine: number; // line number of the author line, or -1 if none
   attributes: Array<{ name: string; value: string }>; // parsed :name: value pairs
 }
 
@@ -2479,16 +2481,55 @@ function detectBlocks(doc: any): BlockInfo[] {
   let i = 1;
 
   // Detect document header block at the very top of the document.
-  // The block covers only the :name: value attribute lines (not the = Title heading).
+  // The block covers the = Title heading, optional author line, and :name: value attribute lines.
   {
     let headerStart = -1;
     let headerEnd = -1;
+    let titleLine = -1;
+    let authorLine = -1;
     const attributes: Array<{ name: string; value: string }> = [];
     let ln = 1;
 
     // Skip optional document title (= Title) — it renders as a normal heading
     if (ln <= doc.lines && /^=\s+/.test(doc.line(ln).text.trim())) {
+      titleLine = ln;
       ln++;
+    }
+
+    // Detect optional author line directly after the title
+    // Format: Firstname Middlename Lastname <email>
+    // Must NOT start with : (attribute) or [ (block attribute) or = (heading)
+    if (titleLine > 0 && ln <= doc.lines) {
+      const candidateText = doc.line(ln).text.trim();
+      if (candidateText && !candidateText.startsWith(":") && !candidateText.startsWith("[") && !candidateText.startsWith("=")) {
+        // Parse author line: "First Middle Last <email>" or "First Last <email>" or "First Last" etc.
+        const authorMatch = candidateText.match(/^([^<;]+?)(?:\s+<([^>]+)>)?$/);
+        if (authorMatch) {
+          const namePart = authorMatch[1].trim();
+          const email = authorMatch[2] || "";
+          const nameParts = namePart.split(/\s+/);
+
+          if (nameParts.length > 0 && nameParts[0].length > 0) {
+            authorLine = ln;
+            if (headerStart < 0) headerStart = ln;
+            headerEnd = ln;
+            ln++;
+
+            const firstname = nameParts[0];
+            const lastname = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+            const middlename = nameParts.length > 2 ? nameParts.slice(1, -1).join(" ") : "";
+            const fullname = namePart;
+            const initials = nameParts.map(n => n[0]?.toUpperCase() || "").join("");
+
+            attributes.push({ name: "author", value: fullname });
+            if (firstname) attributes.push({ name: "firstname", value: firstname });
+            if (middlename) attributes.push({ name: "middlename", value: middlename });
+            if (lastname) attributes.push({ name: "lastname", value: lastname });
+            if (initials) attributes.push({ name: "authorinitials", value: initials });
+            if (email) attributes.push({ name: "email", value: email });
+          }
+        }
+      }
     }
 
     // Scan contiguous attribute lines (:name: value)
@@ -2511,7 +2552,9 @@ function detectBlocks(doc: any): BlockInfo[] {
         type: "docheader",
         startLine: headerStart,
         endLine: headerEnd,
+        titleLine,
         title: "",
+        authorLine,
         attributes,
       });
       i = headerEnd + 1;
@@ -3556,6 +3599,9 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
 }
 
 // AsciiDoc built-in attribute references
+// Document-defined attributes — populated by buildDecorations from the docheader block
+let documentDefinedAttributes = new Map<string, string>();
+
 const asciidocAttributes: Record<string, string> = {
   nbsp: "\u00A0", zwsp: "\u200B", wj: "\u2060", shy: "\u00AD",
   ensp: "\u2002", emsp: "\u2003", thinsp: "\u2009",
@@ -3884,7 +3930,10 @@ function renderInline(text: string): string {
 
   // --- AsciiDoc attribute references: {name} ---
   result = result.replace(/\{(\w[\w-]*)\}/g, (_m, name) => {
-    const val = asciidocAttributes[name.toLowerCase()];
+    const key = name.toLowerCase();
+    const docVal = documentDefinedAttributes.get(key);
+    if (docVal !== undefined) return escapeHtml(docVal);
+    const val = asciidocAttributes[key];
     return val !== undefined ? escapeHtml(val) : `{${name}}`;
   });
 
@@ -5414,6 +5463,21 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
   const rawBaseHeightPx = measureRawLineHeightPx(view);
   const blocks = detectBlocks(doc);
 
+  // If cursor is on the document title line (= Title) and there's an author line
+  // directly below it (part of the docheader block), show both as raw so they're
+  // editable together. Also: if cursor is on the author line, show the title too.
+  for (const block of blocks) {
+    if (block.type !== "docheader") continue;
+    if (block.titleLine > 0 && block.authorLine > 0) {
+      if (rawLines.has(block.titleLine)) {
+        rawLines.add(block.authorLine);
+      } else if (rawLines.has(block.authorLine)) {
+        rawLines.add(block.titleLine);
+      }
+    }
+    break;
+  }
+
   // Detect :stem: document attribute for math notation default
   const stemInfo = detectStemAttribute(doc);
   documentStemNotation = stemInfo.notation;
@@ -5482,6 +5546,16 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     }
   }
 
+  // Populate document-defined attributes from docheader (including implicit author attributes)
+  documentDefinedAttributes = new Map();
+  for (const block of blocks) {
+    if (block.type !== "docheader") continue;
+    for (const attr of block.attributes) {
+      documentDefinedAttributes.set(attr.name.toLowerCase(), attr.value);
+    }
+    break;
+  }
+
   // Precompute ordered list numbering
   const listNumbers = new Map<number, number>();
   {
@@ -5538,7 +5612,10 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       // own padding separately in their cursorInBlock rendering path.
 
       if (block.type === "docheader") {
-        if (!cursorInBlock) {
+        // Also treat cursor on the title line as "in block" so clicking the
+        // heading reveals the author line and attributes for editing.
+        const titleOnCursor = editorHasFocus && block.titleLine > 0 && cursorLine === block.titleLine;
+        if (!cursorInBlock && !titleOnCursor) {
           const firstLine = doc.line(blockStart);
           builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
           builder.add(firstLine.from, firstLine.to, Decoration.replace({
@@ -5553,7 +5630,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             }
           }
         }
-        // When cursorInBlock: raw text shown for editing
+        // When cursorInBlock or titleOnCursor: raw text shown for editing
       } else if (block.type === "image") {
         if (!cursorInBlock) {
           const firstLine = doc.line(blockStart);
