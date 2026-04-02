@@ -14,6 +14,9 @@
   "scripts": {
     "build": "webpack --mode=production && cd dist && tar -czf ../com.asciidoc.joplin-plugin.jpl * && cp ../com.asciidoc.joplin-plugin.jpl ~/.config/joplindev-desktop/plugins/ 2>/dev/null; cp ../com.asciidoc.joplin-plugin.jpl ~/.config/joplin-desktop/plugins/ 2>/dev/null; rm -rf ~/.config/joplindev-desktop/cache/com.asciidoc.joplin-plugin/ 2>/dev/null; rm -rf ~/.config/joplin-desktop/cache/com.asciidoc.joplin-plugin/ 2>/dev/null; echo 'Deployed to Joplin'",
     "prepublishOnly": "npm run build && mkdir -p publish && cp com.asciidoc.joplin-plugin.jpl publish/",
+    "release": "./scripts/release.sh patch",
+    "release:minor": "./scripts/release.sh minor",
+    "release:major": "./scripts/release.sh major",
     "dev": "webpack --mode=development --watch"
   },
   "devDependencies": {
