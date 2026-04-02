@@ -1,0 +1,11 @@
+src/
+dist/
+*.jpl
+*.md
+!README.adoc
+tsconfig.json
+webpack.config.js
+.DS_Store
+.gitignore
+CLAUDE.md
+asciidoctor.js-main/

@@ -5,10 +5,10 @@
   "version": "1.0.0",
   "name": "AsciiDoc Notes",
   "description": "AsciiDoc note-taking with live preview for Joplin",
-  "author": "",
-  "homepage_url": "",
-  "repository_url": "",
+  "author": "fumetodev",
+  "homepage_url": "https://github.com/fumetodev/joplin-asciidoc-plugin/blob/main/README.adoc",
+  "repository_url": "https://github.com/fumetodev/joplin-asciidoc-plugin",
   "platforms": ["desktop"],
-  "keywords": ["asciidoc", "editor", "preview"],
-  "categories": ["productivity"]
+  "keywords": ["asciidoc", "editor", "preview", "live-preview"],
+  "categories": ["productivity", "editor"]
 }

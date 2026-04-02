@@ -41,9 +41,9 @@ const SAVE_DEBOUNCE_MS = 2000;
 const lineNumbersCompartment = new Compartment();
 const spellcheckCompartment = new Compartment();
 let showLineNumbers = localStorage.getItem("asciidoc-line-numbers") === "true";
-let specialBlockShading = localStorage.getItem("asciidoc-block-shading") !== "false";
-let overlayEditingEnabled = localStorage.getItem("asciidoc-overlay-editing") === "true";
-let spellcheckEnabled = localStorage.getItem("asciidoc-spellcheck") !== "false";
+let specialBlockShading = localStorage.getItem("asciidoc-block-shading") === "true";
+let overlayEditingEnabled = localStorage.getItem("asciidoc-overlay-editing") !== "false";
+let spellcheckEnabled = localStorage.getItem("asciidoc-spellcheck") === "true";
 let currentZoom = parseInt(localStorage.getItem("asciidoc-editor-zoom") || "100", 10);
 if (currentZoom < 50 || currentZoom > 150) currentZoom = 100;
 let compactSpacingEnabled = false;
@@ -119,7 +119,7 @@ function attributeCompletionSource(context: CompletionContext): CompletionResult
 setOverlayEditingEnabled(overlayEditingEnabled);
 setCompactSpacing(compactSpacingEnabled);
 const savedDocAttr = localStorage.getItem("asciidoc-doc-attributes");
-setDocAttributesVisible(savedDocAttr === null ? true : savedDocAttr === "true");
+setDocAttributesVisible(savedDocAttr === "true");
 
 // Highlight removal helpers
 const backgroundHighlightPattern = /\[\.[a-z-]+-background\]#([^#]+)#/g;

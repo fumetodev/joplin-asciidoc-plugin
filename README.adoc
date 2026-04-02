@@ -4,13 +4,17 @@ A full-featured AsciiDoc editor plugin for https://joplinapp.org/[Joplin] with r
 
 Requires *Joplin 3.1+* (desktop only).
 
+image::img/sample-video.gif[AsciiDoc Notes demo,width=100%]
+
 == Features at a Glance
 
 * *Live preview* -- AsciiDoc renders inline as you type, powered by CodeMirror 6 and Asciidoctor.js
-* *Ribbon toolbar* -- four tabbed panels (Text, Insert, Advanced, Editor) with one-click access to every AsciiDoc construct
+* *Ribbon toolbar* -- four tabbed panels (Text, Insert, Advanced, View) with one-click access to every AsciiDoc construct
 * *Block editing* -- click any rendered table, code block, image, diagram, or blockquote to edit it in a focused modal or inline
 * *Markdown conversion* -- convert existing Markdown notes to AsciiDoc with a single command
 * *Wiki-links & cross-references* -- `+<<noteId,Display Text>>+` links between notes with autocomplete
+* *Author line* -- author name and email rendered as a byline under the document title, with implicit attribute generation
+* *Attribute autocomplete* -- type `+{+` to autocomplete document attributes defined in the header
 * *Template system* -- save and reuse note templates
 * *Spellcheck* -- built-in spell checker with personal dictionary support
 * *Mermaid diagrams* -- 24 diagram types rendered inline with live preview editing
@@ -39,19 +43,23 @@ npm run build
 
 === Creating an AsciiDoc Note
 
+To have all new notes created as AsciiDoc by default, enable *"Create new notes as AsciiDoc"* in *Preferences > AsciiDoc*.
+
+You can also convert existing notes or create AsciiDoc notes on demand:
+
 * *Tools > New AsciiDoc Note* -- creates a blank AsciiDoc note
 * *Tools > Convert to AsciiDoc Note* -- converts the current Markdown note in place
 * *Tools > Convert to AsciiDoc Note (new file)* -- creates an AsciiDoc copy, keeping the original
 * *Right-click a note > Create AsciiDoc Copy* -- convert from the note list
 * *Right-click a note > Replace with AsciiDoc File* -- convert in place from the note list
-* *Note toolbar button: "Make AsciiDoc"* -- one-click convert for the current note
+* *Note toolbar button: "Make AsciiDoc"* -- one-click convert for the current note (highlighted below)
+
+image::img/new-asciidoc-note-button.png[Make AsciiDoc button location]
 
 === Converting Entire Notebooks
 
 * *Right-click a notebook > Create AsciiDoc Copy of Notebook* -- recursively convert all notes in the notebook to AsciiDoc copies
 * *Right-click a notebook > Replace with AsciiDoc Notebook* -- recursively convert all notes in the notebook in place
-
-You can also enable *"Create new notes as AsciiDoc"* in Preferences > AsciiDoc to auto-convert every new note.
 
 '''
 
@@ -106,7 +114,7 @@ The ribbon toolbar is organized into four tabs:
 | Button | Action
 
 | Admonition
-| Dropdown: Note, Tip, Warning, Caution, Important, Question
+| Dropdown: Note, Tip, Warning, Caution, Important
 
 | Source Block
 | Dropdown with 12 languages (JS, TS, Python, Rust, Java, HTML, CSS, JSON, Bash, SQL, Go, Ruby)
@@ -148,7 +156,7 @@ The ribbon toolbar is organized into four tabs:
 | External URL or wiki-link to another note
 
 | Template
-| Insert from your template library (with search/filter)
+| Insert from your template library (with search/filter and delete)
 
 | Symbols
 | 11 categories: AsciiDoc, Whitespace, Punctuation, Math, Arrows, Currency, Marks, Shapes, Greek, Super/Sub, Musical
@@ -191,10 +199,10 @@ The ribbon toolbar is organized into four tabs:
 | Insert bibliography section with entries using citation format presets (APA 7th, MLA 9th, Chicago Notes-Bibliography, Chicago Author-Date, IEEE, Vancouver/NLM, Harvard)
 
 | Cite
-| Insert citation reference (`+<<ref>>+`)
+| Insert citation reference (`+<<ref>>+`) with dropdown showing bibliography entries
 |===
 
-=== Editor
+=== View
 
 [cols="1,3"]
 |===
@@ -203,8 +211,8 @@ The ribbon toolbar is organized into four tabs:
 | Line Numbers
 | Toggle line numbers on/off
 
-| Spell Checker
-| Toggle spell checking on/off
+| Document Attributes
+| Toggle visibility of the Document Attributes block in the rendered view
 
 | Special Block Shading
 | Toggle background shading on rendered blocks
@@ -235,29 +243,33 @@ The editor renders AsciiDoc constructs inline as you type. Move your cursor to a
 
 *Headings* -- `+= Title+` through `+===== Level 5+`, rendered with decreasing font sizes and heading colors.
 
+*Author line* -- A line directly after the document title (`+= Title+`) in the format `+Firstname Lastname <email>+` is parsed as the author line. It renders as a byline under the title heading ("Author Name -- email") and automatically sets the `+{author}+`, `+{firstname}+`, `+{lastname}+`, `+{middlename}+`, `+{authorinitials}+`, and `+{email}+` document attributes.
+
 *Text formatting* -- Bold, italic, monospace, strikethrough, superscript, subscript, underline, overline, highlight, and color/size roles all render inline.
 
-*Lists* -- Bullet (`+*+`), numbered (`+.+`), checklists (`+* [x]+`), and definition lists (`+term::+`) with multi-level nesting.
+*Lists* -- Bullet (`+*+`), numbered (`+.+`), checklists (`+* [x]+`), and definition lists (`+term::+`) with multi-level nesting. Select multiple list items and press Tab/Shift+Tab to indent/dedent them together.
 
 *Code blocks* -- Fenced source blocks with syntax highlighting and a language label. Click to edit in a modal with a language selector.
 
-*Tables* -- Full rendered table with header row/column support, column alignment, vertical alignment, striping patterns, frame and grid options. Click to edit with add/remove row/column controls and header toggles.
+*Tables* -- Full rendered table with header row/column support, column alignment, vertical alignment, striping patterns, frame and grid options. Click to edit with add/remove row/column controls and header toggles. Supports scale and alignment settings.
 
 *Images* -- Web URLs and Joplin local resources (`+:/resourceId+`). Supports alt text, title, caption, scale (10-200%), alignment (center/left/right), and caption position (below/left/right). Click to open a full image editor modal.
 
-*Admonitions* -- NOTE, TIP, WARNING, CAUTION, IMPORTANT, and QUESTION blocks with colored labels.
+*Admonitions* -- NOTE, TIP, WARNING, CAUTION, and IMPORTANT blocks with colored labels.
 
 *Blockquotes* -- Rendered with attribution. Click to edit content and author.
 
 *Table of Contents* -- Add `:toc:` to the document header to generate a clickable Table of Contents from section headings. Supports `:toclevels:` (1-5, default 2), `:toc-title:` (custom title), and three placement modes: `auto` (after header), `preamble` (after preamble), and `macro` (at `toc::[]` location). Click any TOC entry to jump to that heading.
 
-*Mermaid diagrams* -- `+[mermaid]+` blocks render 24 diagram types inline: Flowchart, Sequence, Class, State, ER, Gantt, Pie, User Journey, Git Graph, Mindmap, Timeline, Quadrant, Sankey, XY Chart, Block, Packet, Kanban, Architecture, C4 (Context/Container/Component/Deployment), Requirement, and ZenUML. Click to edit in a dedicated modal with live preview. Supports width control, theme switching, and SVG caching.
+*Mermaid diagrams* -- `+[mermaid]+` blocks render 24 diagram types inline: Flowchart, Sequence, Class, State, ER, Gantt, Pie, User Journey, Git Graph, Mindmap, Timeline, Quadrant, Sankey, XY Chart, Block, Packet, Kanban, Architecture, C4 (Context/Container/Component/Deployment), Requirement, and ZenUML. Click to edit in a dedicated modal with live preview. Supports scale, alignment, and theme switching.
 
 *Footnotes* -- Auto-numbered superscript references [1], [2], [3]. Named footnotes (`+footnote:id[text]+`) share numbers when referenced. Click to see a floating popup with the footnote text.
 
 *Cross-references* -- `+<<noteId,Display Text>>+` renders as a clickable link. Xrefs with section anchors (`+<<noteId#section,text>>+`) include a toggle to preview the linked section inline.
 
-*Math / STEM* -- Inline math via `+stem:[]+`, `+latexmath:[]+`, or `+asciimath:[]+` macros renders via KaTeX directly in the preview. Display-mode block math uses `+[latexmath]+` / `+[asciimath]+` / `+[stem]+` attribute followed by `+++++` delimiters. The `:stem:` document attribute controls the default notation. AsciiMath expressions are auto-converted to LaTeX before rendering. Click a rendered block equation to edit in a modal with live preview and notation selector.
+*Math / STEM* -- Inline math via `+stem:[]+`, `+latexmath:[]+`, or `+asciimath:[]+` macros renders via KaTeX directly in the preview. Display-mode block math uses `+[latexmath]+` / `+[asciimath]+` / `+[stem]+` attribute followed by `+++++` delimiters. The `:stem:` document attribute controls the default notation. AsciiMath expressions are auto-converted to LaTeX before rendering. Click a rendered block equation to edit in a modal with live preview, notation selector, scale (10-200%), and alignment.
+
+*Element attributes* -- Role/attribute lines like `+[.text-center]+` are hidden in preview but automatically revealed for editing when the affected line is clicked.
 
 *Collapsible blocks* -- `+[%collapsible]+` blocks render with a clickable caret to expand/collapse.
 
@@ -266,6 +278,8 @@ The editor renders AsciiDoc constructs inline as you type. Move your cursor to a
 *Horizontal rules & page breaks* -- `+'''+` renders as a divider; `+<<<+` renders as a labeled page break.
 
 *AsciiDoc text replacements* -- `+(C)+` becomes (C), `+->+` becomes ->, `+--+` becomes an em dash, `+...+` becomes an ellipsis, and more.
+
+*Attribute references* -- `+{name}+` references are resolved against both built-in AsciiDoc attributes and document-defined attributes (from the header and author line).
 
 '''
 
@@ -286,8 +300,8 @@ The editor renders AsciiDoc constructs inline as you type. Move your cursor to a
 | Cmd+S | Save note
 | Cmd+Shift+C | Copy selection + add to Favorite Copies list
 | Cmd+Shift+V | Paste from Favorite Copies list
-| Tab | Indent list item
-| Shift+Tab | Dedent list item
+| Tab | Indent list item (works on multi-line selections)
+| Shift+Tab | Dedent list item (works on multi-line selections)
 | Enter | Auto-continue list / checklist
 | Alt+Backspace | Delete word backward
 | Alt+Delete | Delete word forward
@@ -359,9 +373,11 @@ When right-clicking a misspelled word, additional options appear:
 
 == Wiki-Links & Autocomplete
 
-Type `+<<+` to trigger note search autocomplete -- results appear as you type, showing up to 20 matching notes by title. Select a note to insert a cross-reference link.
+Type `+<<+` to trigger note search autocomplete -- recent notes appear immediately, and results filter as you type. Bibliography entries from the current note are also shown in a separate group. Select a note to insert a cross-reference link.
 
 After selecting a note, type `+#+` to drill into its sections. The autocomplete shows heading levels (h2, h3, etc.) with indentation, letting you link directly to a specific section.
+
+Type `+{+` to trigger document attribute autocomplete -- all attributes defined in the document header (including implicit author attributes) appear in a dropdown. Selecting one inserts the attribute name with a closing `+}+`.
 
 '''
 
@@ -379,9 +395,10 @@ A session-scoped clipboard history for frequently reused text:
 == Templates
 
 . Open any AsciiDoc note you want to reuse as a template.
-. Use the *Template* button in the Insert tab and choose *"Save current note as template"*.
+. Use the *Template* button in the Insert tab and choose *"Assign Note as Template"*.
 . The note is tagged with `asciidoc-template` and appears in the template library.
 . To insert a template, click *Template* in the Insert tab, search by title, and click to insert its content at the cursor.
+. To remove a template, click the *x* button next to its name in the template list.
 
 '''
 
@@ -422,28 +439,25 @@ In *Preferences > AsciiDoc*:
 | Use tighter spacing between elements instead of official Asciidoctor spacing values
 
 | Favorite Copies
-| On
+| Off
 | Enable Cmd+Shift+C / Cmd+Shift+V clipboard history
 
 | Favorite Copies Max List Size
 | 20
 | Maximum items in the Favorite Copies list (1-100)
+
+| Attribute Autocomplete
+| Off
+| Type `+{+` to show document attribute suggestions
+
+| Spell Checker
+| Off
+| Enable real-time spell checking in the editor
 |===
 
-In *Preferences > Spell Checker*:
+=== View Settings
 
-[cols="1,1,3"]
-|===
-| Setting | Default | Description
-
-| Adding New Words Adds Their Plural/Singular
-| On
-| When adding a word to the dictionary, also add its plural or singular form automatically
-|===
-
-=== Editor Settings
-
-Editor-level settings (in the Editor toolbar tab), persisted in the browser's localStorage:
+View-level settings (in the View toolbar tab), persisted in the browser's localStorage:
 
 [cols="1,1,3"]
 |===
@@ -453,16 +467,16 @@ Editor-level settings (in the Editor toolbar tab), persisted in the browser's lo
 | Off
 | Show/hide line numbers in the gutter
 
-| Spell Checker
-| On
-| Enable/disable real-time spell checking
+| Document Attributes
+| Off
+| Show/hide the Document Attributes block in rendered view
 
 | Special Block Shading
-| On
+| Off
 | Background shading on rendered blocks
 
 | Overlay Block Editing
-| Off
+| On
 | Open a modal when clicking rendered blocks instead of inline editing
 
 | Fullscreen Mode
@@ -486,34 +500,22 @@ Smart quotes can be toggled via the *Quotes* button in the Advanced toolbar tab 
 
 '''
 
-== Document Attributes
+== Document Attributes & Author Line
 
-Use *Tools > Edit AsciiDoc Attributes* to set document-level attributes (author, revision, custom variables). These are stored in the note's sentinel block and passed to Asciidoctor during rendering.
+Document attributes are key-value pairs defined in the document header (lines starting with `+:name: value+` after the title). They can be referenced anywhere in the document as `+{name}+`.
 
-Supported document attributes in the editor header:
+An *author line* placed directly after the document title is automatically parsed:
 
-[cols="1,1,3"]
-|===
-| Attribute | Default | Description
+[source,asciidoc]
+----
+= The Intrepid Chronicles
+Kismet R. Lee <kismet@asciidoctor.org>
+:toc: auto
+----
 
-| `:toc:`
-| _(not set)_
-| Enable Table of Contents. Values: `auto`, `preamble`, `macro`
+This sets the implicit attributes `+{author}+`, `+{firstname}+`, `+{middlename}+`, `+{lastname}+`, `+{authorinitials}+`, and `+{email}+`, and renders the author name and email as a byline beneath the document title.
 
-| `:toclevels:`
-| 2
-| Number of heading levels shown in TOC (1-5)
-
-| `:toc-title:`
-| Table of Contents
-| Custom title for the TOC box
-
-| `:stem:`
-| _(not set)_
-| Enable math rendering. Values: `latexmath`, `asciimath`
-|===
-
-Custom key=value attributes can also be set via the dialog and are passed through to Asciidoctor.
+The *Document Attributes* toggle in the View toolbar tab controls whether the attributes block is visible in the rendered preview.
 
 '''
 
@@ -538,7 +540,7 @@ The plugin consists of two webpack bundles:
 
 AsciiDoc notes are identified by a `++```asciidoc-settings++` sentinel block appended to the note body. This block stores document attributes as JSON and is stripped before rendering.
 
-Communication between the plugin sandbox and the webview editor uses Joplin's `postMessage` IPC protocol (19 message types from webview to plugin, 4 from plugin to webview) for operations like saving, rendering, resource resolution, note search, template management, spellcheck settings, and fullscreen mode.
+Communication between the plugin sandbox and the webview editor uses Joplin's `postMessage` IPC protocol for operations like saving, rendering, resource resolution, note search, template management, spellcheck settings, and fullscreen mode.
 
 '''
 
@@ -555,6 +557,27 @@ After every build, restart Joplin to load the updated plugin.
 
 '''
 
+== Publishing
+
+To publish to the Joplin plugin directory:
+
+[source,bash]
+----
+npm publish        # Builds, packages .jpl into publish/, and publishes to npm
+----
+
+The Joplin plugin directory automatically discovers packages on npm with the `joplin-plugin` keyword.
+
+To create a GitHub release for manual installation:
+
+[source,bash]
+----
+npm run build
+gh release create v1.0.0 ./com.asciidoc.joplin-plugin.jpl --title "v1.0.0" --notes "Initial release"
+----
+
+'''
+
 == License
 
-MIT
+MIT -- see link:LICENSE[LICENSE]

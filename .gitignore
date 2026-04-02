@@ -1,5 +1,7 @@
 node_modules/
 dist/
+publish/
+*.jpl
 .DS_Store
 CLAUDE.md
 asciidoctor.js-main/

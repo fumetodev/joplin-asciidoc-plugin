@@ -2,8 +2,18 @@
   "name": "com.asciidoc.joplin-plugin",
   "version": "1.0.0",
   "description": "AsciiDoc note-taking with live preview for Joplin",
+  "license": "MIT",
+  "author": "fumetodev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fumetodev/joplin-asciidoc-plugin.git"
+  },
+  "homepage": "https://github.com/fumetodev/joplin-asciidoc-plugin",
+  "keywords": ["joplin-plugin"],
+  "files": ["publish"],
   "scripts": {
     "build": "webpack --mode=production && cd dist && tar -czf ../com.asciidoc.joplin-plugin.jpl * && cp ../com.asciidoc.joplin-plugin.jpl ~/.config/joplindev-desktop/plugins/ 2>/dev/null; cp ../com.asciidoc.joplin-plugin.jpl ~/.config/joplin-desktop/plugins/ 2>/dev/null; rm -rf ~/.config/joplindev-desktop/cache/com.asciidoc.joplin-plugin/ 2>/dev/null; rm -rf ~/.config/joplin-desktop/cache/com.asciidoc.joplin-plugin/ 2>/dev/null; echo 'Deployed to Joplin'",
+    "prepublishOnly": "npm run build && mkdir -p publish && cp com.asciidoc.joplin-plugin.jpl publish/",
     "dev": "webpack --mode=development --watch"
   },
   "devDependencies": {

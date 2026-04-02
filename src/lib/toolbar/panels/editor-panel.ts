@@ -58,7 +58,7 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   const docAttrCb = document.createElement("input");
   docAttrCb.type = "checkbox";
   const savedDocAttr = localStorage.getItem("asciidoc-doc-attributes");
-  docAttrCb.checked = savedDocAttr === null ? true : savedDocAttr === "true";
+  docAttrCb.checked = savedDocAttr === null ? false : savedDocAttr === "true";
   docAttrCb.addEventListener("input", () => {
     options.onToggleDocAttributes(docAttrCb.checked);
     localStorage.setItem("asciidoc-doc-attributes", String(docAttrCb.checked));
@@ -81,7 +81,7 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   const shadingCb = document.createElement("input");
   shadingCb.type = "checkbox";
   const savedShading = localStorage.getItem("asciidoc-block-shading");
-  shadingCb.checked = savedShading === null ? true : savedShading === "true";
+  shadingCb.checked = savedShading === null ? false : savedShading === "true";
   shadingCb.addEventListener("input", () => {
     options.onToggleBlockShading(shadingCb.checked);
     localStorage.setItem("asciidoc-block-shading", String(shadingCb.checked));
@@ -98,7 +98,7 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   const overlayCb = document.createElement("input");
   overlayCb.type = "checkbox";
   const savedOverlay = localStorage.getItem("asciidoc-overlay-editing");
-  overlayCb.checked = savedOverlay === null ? false : savedOverlay === "true";
+  overlayCb.checked = savedOverlay === null ? true : savedOverlay === "true";
   overlayCb.addEventListener("input", () => {
     options.onToggleOverlayEditing(overlayCb.checked);
     localStorage.setItem("asciidoc-overlay-editing", String(overlayCb.checked));

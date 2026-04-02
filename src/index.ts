@@ -912,7 +912,7 @@ async function registerSettings() {
       section: "asciidoc",
       public: true,
       type: 3, // Boolean
-      value: true,
+      value: false,
       label: "Favorite Copies (Ctrl+Shift+C / Ctrl+Shift+V)",
       description: "When enabled, Ctrl+Shift+C copies text and adds it to a session-only favorites list. Ctrl+Shift+V opens an autocomplete dropdown to paste from that list.",
     },
@@ -930,7 +930,7 @@ async function registerSettings() {
       section: "asciidoc",
       public: true,
       type: 3, // Boolean
-      value: true,
+      value: false,
       label: "Attribute Autocomplete",
       description: "When enabled, typing { shows an autocomplete menu for document attributes defined in the header.",
     },
@@ -938,7 +938,7 @@ async function registerSettings() {
       section: "asciidoc",
       public: true,
       type: 3, // Boolean
-      value: true,
+      value: false,
       label: "Spell Checker",
       description: "Enable or disable the spell checker in the editor.",
     },
