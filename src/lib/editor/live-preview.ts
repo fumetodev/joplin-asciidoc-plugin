@@ -3527,6 +3527,11 @@ let footnoteSeqCounter = 0; // incremented per renderInline footnote match
 let activeBiblioLabels = new Map<string, string>();     // label → display text (xreftext or label)
 let activeBiblioEntryText = new Map<string, string>();   // label → full entry text (for popups)
 
+/** Returns the current bibliography labels map (label → display text). */
+export function getBiblioLabels(): Map<string, string> {
+  return activeBiblioLabels;
+}
+
 // STEM/math rendering state
 let documentStemNotation: MathNotation = "asciimath"; // AsciiDoc default
 

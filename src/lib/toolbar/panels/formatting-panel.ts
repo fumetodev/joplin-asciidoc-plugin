@@ -1,4 +1,5 @@
 import { wrapSelection, insertText, prefixLine, positionDropdown } from "../toolbar-actions";
+import { getBiblioLabels } from "../../editor/live-preview";
 
 const ARROW_SVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`;
 
@@ -35,13 +36,14 @@ interface DropdownState {
   footnote: boolean;
   anchor: boolean;
   keyboard: boolean;
+  cite: boolean;
 }
 
 export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => void } {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
 
-  const state: DropdownState = { quotes: false, passthrough: false, menu: false, footnote: false, anchor: false, keyboard: false };
+  const state: DropdownState = { quotes: false, passthrough: false, menu: false, footnote: false, anchor: false, keyboard: false, cite: false };
   const wrapEls: Map<keyof DropdownState, HTMLElement> = new Map();
 
   function closeAll() {
@@ -244,6 +246,10 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
   });
   biblioRow.appendChild(addBiblioBtn);
 
+  const citeWrap = document.createElement("div");
+  citeWrap.className = "split-btn-wrap";
+  wrapEls.set("cite", citeWrap);
+
   const citeBtn = document.createElement("button");
   citeBtn.className = "ribbon-labeled-btn";
   citeBtn.title = "Insert citation reference (<<ref>>)";
@@ -251,7 +257,15 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
   citeBtn.addEventListener("click", () => {
     insertText("<<>>", 2);
   });
-  biblioRow.appendChild(citeBtn);
+
+  const citeArrow = document.createElement("button");
+  citeArrow.className = "split-arrow";
+  citeArrow.innerHTML = ARROW_SVG;
+  citeArrow.addEventListener("click", (e) => { e.stopPropagation(); toggle("cite"); });
+
+  citeWrap.appendChild(citeBtn);
+  citeWrap.appendChild(citeArrow);
+  biblioRow.appendChild(citeWrap);
 
   wrapper.appendChild(createRibbonSection("References", biblioRow));
 
@@ -267,6 +281,7 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
       case "footnote": buildFootnoteDropdown(); break;
       case "anchor": buildAnchorDropdown(); break;
       case "keyboard": buildKeyboardDropdown(); break;
+      case "cite": buildCiteDropdown(); break;
     }
   }
 
@@ -577,6 +592,36 @@ export function buildFormattingPanel(): { element: HTMLElement; cleanup: () => v
     anchorWrap.appendChild(dd);
     positionDropdown(dd);
     idInput.focus();
+  }
+
+  function buildCiteDropdown() {
+    const biblioLabels = getBiblioLabels();
+    const dd = document.createElement("div");
+    dd.className = "split-dropdown open";
+    dd.setAttribute("role", "menu");
+    dd.style.maxHeight = "320px";
+    dd.style.overflowY = "auto";
+
+    if (biblioLabels.size === 0) {
+      const empty = document.createElement("div");
+      empty.style.cssText = "padding:10px 14px;font-size:12px;color:var(--asciidoc-placeholder,#888);font-style:italic";
+      empty.textContent = "No bibliography entries in this note";
+      dd.appendChild(empty);
+    } else {
+      for (const [label, xreftext] of biblioLabels) {
+        const item = document.createElement("button");
+        item.className = "split-dropdown-item";
+        item.innerHTML = `<span style="font-weight:600">${xreftext}</span> <span style="opacity:0.5;font-size:0.85em;margin-left:4px">${label}</span>`;
+        item.addEventListener("click", () => {
+          insertText(`<<${label}>>`);
+          closeAll();
+        });
+        dd.appendChild(item);
+      }
+    }
+
+    citeWrap.appendChild(dd);
+    positionDropdown(dd);
   }
 
   function buildKeyboardDropdown() {

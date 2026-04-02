@@ -1,6 +1,7 @@
 import {
   type CompletionContext,
   type CompletionResult,
+  type Completion,
   autocompletion,
   completionKeymap,
   startCompletion,
@@ -10,6 +11,7 @@ import {
 } from "@codemirror/autocomplete";
 import { EditorView, keymap } from "@codemirror/view";
 import { searchNotes, getNoteSections } from "../ipc";
+import { getBiblioLabels } from "./live-preview";
 
 interface AutocompleteResult {
   id: string;
@@ -25,7 +27,7 @@ interface Section {
 
 /**
  * Main wiki-link completion source.
- * Phase 1: Note search — triggered by `<<` — shows note titles
+ * Phase 1: Note search — triggered by `<<` — shows note titles + bibliography refs
  * Phase 2: Section search — triggered by `#` after note ID — shows sections
  */
 async function wikiLinkCompletionSource(
@@ -59,28 +61,56 @@ async function handleNoteCompletion(
     results = response.notes.map(n => ({ id: n.id, title: n.title, node_type: "note" }));
   } catch (e) {
     console.error("[WikiLink] autocomplete search failed:", e);
-    return null;
+    results = [];
   }
-
-  if (results.length === 0) return null;
 
   const queryFrom = match.from + 2;
   const xrefStart = match.from;
+  const queryLower = query.trim().toLowerCase();
+
+  // Build note link options
+  const noteOptions: Completion[] = results.map((note) => ({
+    label: note.title,
+    detail: note.node_type === "noteview" ? "View" : "Note",
+    type: note.node_type === "noteview" ? "namespace" : "variable",
+    section: "Notes",
+    apply: (view: any, _completion: any, _from: number, to: number) => {
+      const text = `<<${note.id},${note.title}>>`;
+      view.dispatch({
+        changes: { from: xrefStart, to, insert: text },
+        selection: { anchor: xrefStart + text.length - 2 },
+      });
+    },
+  }));
+
+  // Build bibliography reference options
+  const biblioLabels = getBiblioLabels();
+  const biblioOptions: Completion[] = [];
+  for (const [label, xreftext] of biblioLabels) {
+    if (queryLower && !label.toLowerCase().includes(queryLower) && !xreftext.toLowerCase().includes(queryLower)) {
+      continue;
+    }
+    biblioOptions.push({
+      label: xreftext,
+      detail: label,
+      type: "text",
+      section: "Bibliography",
+      apply: (view: any, _completion: any, _from: number, to: number) => {
+        const text = `<<${label}>>`;
+        view.dispatch({
+          changes: { from: xrefStart, to, insert: text },
+          selection: { anchor: xrefStart + text.length },
+        });
+      },
+    });
+  }
+
+  const allOptions = [...noteOptions, ...biblioOptions];
+  if (allOptions.length === 0) return null;
 
   return {
     from: queryFrom,
-    options: results.map((note) => ({
-      label: note.title,
-      detail: note.node_type === "noteview" ? "View" : "Note",
-      type: note.node_type === "noteview" ? "namespace" : "variable",
-      apply: (view: any, _completion: any, _from: number, to: number) => {
-        const text = `<<${note.id},${note.title}>>`;
-        view.dispatch({
-          changes: { from: xrefStart, to, insert: text },
-          selection: { anchor: xrefStart + text.length - 2 },
-        });
-      },
-    })),
+    options: allOptions,
     validFor: /^[^>,#]*/,
   };
 }

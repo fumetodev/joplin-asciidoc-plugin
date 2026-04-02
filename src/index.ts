@@ -1113,12 +1113,18 @@ joplin.plugins.register({
           if (msg.type === "searchNotes") {
             try {
               const query = (msg.query || "").trim();
-              if (!query) return { notes: [] };
-              const result = await joplin.data.get(["search"], {
-                query,
-                fields: ["id", "title", "body"],
-                limit: 20,
-              });
+              const result = query
+                ? await joplin.data.get(["search"], {
+                    query,
+                    fields: ["id", "title", "body"],
+                    limit: 20,
+                  })
+                : await joplin.data.get(["notes"], {
+                    fields: ["id", "title", "body"],
+                    order_by: "updated_time",
+                    order_dir: "DESC",
+                    limit: 20,
+                  });
               const items = result.items || result;
               return {
                 notes: items.map((n: any) => ({
