@@ -69,7 +69,7 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   spellLabel.appendChild(spellSpan);
   displayToggles.appendChild(spellLabel);
 
-  wrapper.appendChild(createRibbonSection("Display", displayToggles));
+  wrapper.appendChild(createRibbonSection("Editor", displayToggles));
 
   // --- Appearance section ---
   const appearanceToggles = document.createElement("div");

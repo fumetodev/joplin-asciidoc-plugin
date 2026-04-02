@@ -5400,6 +5400,16 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     const maxLine = Math.max(cursorLine, anchorLine);
     for (let ln = minLine; ln <= maxLine; ln++) rawLines.add(ln);
   }
+  // If a raw line is affected by a role/attribute line above it (e.g., [.text-center]),
+  // also show that attribute line as raw so it's visible and editable.
+  for (const ln of [...rawLines]) {
+    if (ln > 1) {
+      const prevText = doc.line(ln - 1).text.trim();
+      if (/^\[\.([^\]]+)\]$/.test(prevText)) {
+        rawLines.add(ln - 1);
+      }
+    }
+  }
   const editorHasFocus = editorHasActiveFocus(view);
   const rawBaseHeightPx = measureRawLineHeightPx(view);
   const blocks = detectBlocks(doc);

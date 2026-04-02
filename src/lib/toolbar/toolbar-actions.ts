@@ -99,7 +99,6 @@ export const admonitionTypes = [
   { label: "Warning", value: "WARNING" },
   { label: "Caution", value: "CAUTION" },
   { label: "Important", value: "IMPORTANT" },
-  { label: "Question", value: "QUESTION" },
 ];
 
 export const sourceLanguages = [

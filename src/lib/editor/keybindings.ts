@@ -46,93 +46,132 @@ function insertAtCursor(view: any, text: string) {
   return true;
 }
 
-function indentListItem(view: any): boolean {
-  const { from } = view.state.selection.main;
-  const line = view.state.doc.lineAt(from);
-  const text = line.text;
-
+function indentSingleLine(text: string): string | null {
   // Match bullet list: * or ** or *** etc.
   const bulletMatch = text.match(/^(\s*)(\*+)(\s(?:\[[ x]\]\s)?)(.*)/);
   if (bulletMatch) {
     const [, indent, stars, rest, content] = bulletMatch;
-    const newLine = indent + stars + "*" + rest + content;
-    view.dispatch({
-      changes: { from: line.from, to: line.to, insert: newLine },
-      selection: { anchor: from + 1 },
-    });
-    return true;
+    return indent + stars + "*" + rest + content;
   }
-
   // Match numbered list: . or .. or ... etc.
   const numberedMatch = text.match(/^(\s*)(\.+)(\s)(.*)/);
   if (numberedMatch) {
     const [, indent, dots, space, content] = numberedMatch;
-    const newLine = indent + dots + "." + space + content;
-    view.dispatch({
-      changes: { from: line.from, to: line.to, insert: newLine },
-      selection: { anchor: from + 1 },
-    });
-    return true;
+    return indent + dots + "." + space + content;
   }
-
-  return false;
+  return null;
 }
 
-function dedentListItem(view: any): boolean {
-  const { from } = view.state.selection.main;
-  const line = view.state.doc.lineAt(from);
-  const text = line.text;
-
+function dedentSingleLine(text: string): string | null {
   // Match bullet list with 2+ stars: ** or *** etc.
   const deepBulletMatch = text.match(/^(\s*)(\*{2,})(\s(?:\[[ x]\]\s)?)(.*)/);
   if (deepBulletMatch) {
     const [, indent, stars, rest, content] = deepBulletMatch;
-    const newLine = indent + stars.slice(1) + rest + content;
-    view.dispatch({
-      changes: { from: line.from, to: line.to, insert: newLine },
-      selection: { anchor: Math.max(line.from, from - 1) },
-    });
-    return true;
+    return indent + stars.slice(1) + rest + content;
   }
-
   // Match single bullet: *
   const singleBulletMatch = text.match(/^(\s*)\*(\s(?:\[[ x]\]\s)?)(.*)/);
   if (singleBulletMatch) {
     const [, indent, , content] = singleBulletMatch;
-    const newLine = indent + content;
-    const cursorPos = line.from + newLine.length;
-    view.dispatch({
-      changes: { from: line.from, to: line.to, insert: newLine },
-      selection: { anchor: Math.min(cursorPos, line.from + newLine.length) },
-    });
-    return true;
+    return indent + content;
   }
-
   // Match numbered list with 2+ dots: .. or ... etc.
   const deepNumberedMatch = text.match(/^(\s*)(\.{2,})(\s)(.*)/);
   if (deepNumberedMatch) {
     const [, indent, dots, space, content] = deepNumberedMatch;
-    const newLine = indent + dots.slice(1) + space + content;
-    view.dispatch({
-      changes: { from: line.from, to: line.to, insert: newLine },
-      selection: { anchor: Math.max(line.from, from - 1) },
-    });
-    return true;
+    return indent + dots.slice(1) + space + content;
   }
-
   // Match single numbered: .
   const singleNumberedMatch = text.match(/^(\s*)\.(\s)(.*)/);
   if (singleNumberedMatch) {
     const [, indent, , content] = singleNumberedMatch;
-    const newLine = indent + content;
+    return indent + content;
+  }
+  return null;
+}
+
+function indentListItem(view: any): boolean {
+  const sel = view.state.selection.main;
+  const startLine = view.state.doc.lineAt(sel.from);
+  const endLine = view.state.doc.lineAt(sel.to);
+
+  // Multi-line selection: indent all list lines, preserve selection range
+  if (startLine.number !== endLine.number) {
+    const changes: Array<{ from: number; to: number; insert: string }> = [];
+    for (let ln = startLine.number; ln <= endLine.number; ln++) {
+      const line = view.state.doc.line(ln);
+      const newText = indentSingleLine(line.text);
+      if (newText != null) {
+        changes.push({ from: line.from, to: line.to, insert: newText });
+      }
+    }
+    if (changes.length === 0) return false;
+    // Compute new selection: adjust anchor/head by cumulative length changes
+    let newFrom = sel.from;
+    let newTo = sel.to;
+    let offset = 0;
+    for (const ch of changes) {
+      const delta = ch.insert.length - (ch.to - ch.from);
+      if (ch.from < sel.from) newFrom += delta;
+      newTo += delta;
+      offset += delta;
+    }
     view.dispatch({
-      changes: { from: line.from, to: line.to, insert: newLine },
-      selection: { anchor: line.from + newLine.length },
+      changes,
+      selection: { anchor: newFrom, head: newTo },
     });
     return true;
   }
 
-  return false;
+  // Single line
+  const newText = indentSingleLine(startLine.text);
+  if (newText == null) return false;
+  view.dispatch({
+    changes: { from: startLine.from, to: startLine.to, insert: newText },
+    selection: { anchor: sel.from + 1 },
+  });
+  return true;
+}
+
+function dedentListItem(view: any): boolean {
+  const sel = view.state.selection.main;
+  const startLine = view.state.doc.lineAt(sel.from);
+  const endLine = view.state.doc.lineAt(sel.to);
+
+  // Multi-line selection: dedent all list lines, preserve selection range
+  if (startLine.number !== endLine.number) {
+    const changes: Array<{ from: number; to: number; insert: string }> = [];
+    for (let ln = startLine.number; ln <= endLine.number; ln++) {
+      const line = view.state.doc.line(ln);
+      const newText = dedentSingleLine(line.text);
+      if (newText != null) {
+        changes.push({ from: line.from, to: line.to, insert: newText });
+      }
+    }
+    if (changes.length === 0) return false;
+    let newFrom = sel.from;
+    let newTo = sel.to;
+    for (const ch of changes) {
+      const delta = ch.insert.length - (ch.to - ch.from);
+      if (ch.from < sel.from) newFrom += delta;
+      newTo += delta;
+    }
+    view.dispatch({
+      changes,
+      selection: { anchor: newFrom, head: newTo },
+    });
+    return true;
+  }
+
+  // Single line
+  const newText = dedentSingleLine(startLine.text);
+  if (newText == null) return false;
+  const delta = newText.length - startLine.text.length;
+  view.dispatch({
+    changes: { from: startLine.from, to: startLine.to, insert: newText },
+    selection: { anchor: Math.max(startLine.from, sel.from + delta) },
+  });
+  return true;
 }
 
 export const asciidocKeymap: KeyBinding[] = [

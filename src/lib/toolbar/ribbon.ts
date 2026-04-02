@@ -9,7 +9,7 @@ const tabs: { id: TabId; label: string }[] = [
   { id: "text", label: "Text" },
   { id: "insert", label: "Insert" },
   { id: "formatting", label: "Advanced" },
-  { id: "editor", label: "Editor" },
+  { id: "editor", label: "View" },
 ];
 
 export function buildRibbon(container: HTMLElement, editorOptions?: EditorPanelOptions, initialMargin?: number, initialZoom?: number): void {
