@@ -926,6 +926,14 @@ async function registerSettings() {
       label: "Favorite Copies Max List Size",
       description: "Maximum number of items to keep in the Favorite Copies list (1-100).",
     },
+    "asciidoc.attributeAutocomplete": {
+      section: "asciidoc",
+      public: true,
+      type: 3, // Boolean
+      value: true,
+      label: "Attribute Autocomplete",
+      description: "When enabled, typing { shows an autocomplete menu for document attributes defined in the header.",
+    },
   });
 }
 
@@ -1005,6 +1013,7 @@ joplin.plugins.register({
               compactSpacing: await joplin.settings.value("asciidoc.compactSpacing") === true,
               favoriteCopies: await joplin.settings.value("asciidoc.favoriteCopies") !== false,
               favoriteCopiesMaxLength: parseInt(String(await joplin.settings.value("asciidoc.favoriteCopiesMaxLength") || 20), 10),
+              attributeAutocomplete: await joplin.settings.value("asciidoc.attributeAutocomplete") !== false,
             };
             try {
               const note = await joplin.workspace.selectedNote();
@@ -1313,6 +1322,12 @@ joplin.plugins.register({
               type: "updateFavoriteCopies",
               enabled: await joplin.settings.value("asciidoc.favoriteCopies") !== false,
               maxLength: parseInt(String(await joplin.settings.value("asciidoc.favoriteCopiesMaxLength") || 20), 10),
+            });
+          }
+          if (event.keys.includes("asciidoc.attributeAutocomplete")) {
+            editors.postMessage(handle, {
+              type: "updateAttributeAutocomplete",
+              enabled: await joplin.settings.value("asciidoc.attributeAutocomplete") !== false,
             });
           }
         });

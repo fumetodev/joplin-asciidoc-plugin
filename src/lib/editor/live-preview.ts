@@ -3602,6 +3602,11 @@ function renderLineHtml(text: string, lineNumber = 0, listNumbers?: Map<number, 
 // Document-defined attributes — populated by buildDecorations from the docheader block
 let documentDefinedAttributes = new Map<string, string>();
 
+/** Returns the current document-defined attributes map (name → value). */
+export function getDocumentAttributes(): Map<string, string> {
+  return documentDefinedAttributes;
+}
+
 const asciidocAttributes: Record<string, string> = {
   nbsp: "\u00A0", zwsp: "\u200B", wj: "\u2060", shy: "\u00AD",
   ensp: "\u2002", emsp: "\u2003", thinsp: "\u2009",
@@ -5556,6 +5561,24 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     break;
   }
 
+  // Extract author byline for the document title heading
+  let authorBylineHtml = "";
+  for (const block of blocks) {
+    if (block.type !== "docheader") continue;
+    if (block.authorLine > 0) {
+      const authorName = documentDefinedAttributes.get("author") || "";
+      const authorEmail = documentDefinedAttributes.get("email") || "";
+      if (authorName) {
+        let byline = escapeHtml(authorName);
+        if (authorEmail) {
+          byline += ` \u2013 <span style="color:var(--asciidoc-link,#2156a5);text-decoration:underline">${escapeHtml(authorEmail)}</span>`;
+        }
+        authorBylineHtml = `<div class="cm-lp-author-byline" style="font-size:0.85em;color:var(--asciidoc-fg,#333);margin:0.25em 0 0.4em;font-weight:400">${byline}</div>`;
+      }
+    }
+    break;
+  }
+
   // Precompute ordered list numbering
   const listNumbers = new Map<number, number>();
   {
@@ -6059,6 +6082,16 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       if (roleStyle) {
         html = `<span style="${roleStyle}">${html}</span>`;
       }
+    }
+    // Append author byline under the document title heading (= Title on line 1).
+    // Move the border from the heading span to a wrapper so the byline sits above the line.
+    // Also tighten the heading's bottom margin for compact title+byline rendering.
+    if (i === 1 && authorBylineHtml && headingMatch && headingMatch[1].length === 1) {
+      html = html
+        .replace(/;?border-bottom:[^;"]*/g, "")
+        .replace(/;?padding-bottom:[^;"]*/g, "")
+        .replace(/;?margin:[^;"]*/g, (m) => m.replace(/margin:[^;"]*/, "margin:0.3em 0 0"));
+      html = `<span style="display:inline-block;width:100%;border-bottom:1px solid var(--asciidoc-border,#ddd);padding-bottom:0.3em">${html}${authorBylineHtml}</span>`;
     }
     builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget(html, line.from) }));
 

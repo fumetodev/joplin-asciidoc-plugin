@@ -190,6 +190,10 @@ const wikiLinkTrigger = EditorView.inputHandler.of((view, from, _to, text) => {
       setTimeout(() => startCompletion(view), 0);
     }
   }
+  // Trigger attribute autocomplete on {
+  if (text === "{") {
+    setTimeout(() => startCompletion(view), 0);
+  }
   // Also trigger on # inside a <<...>> xref for section completion
   if (text === "#") {
     const lineBefore = view.state.sliceDoc(

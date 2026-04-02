@@ -12,7 +12,7 @@ import { type CompletionContext, type CompletionResult, startCompletion, complet
 import { bracketMatching } from "@codemirror/language";
 import { asciidocLanguage } from "./lib/editor/asciidoc-language";
 import { asciidocKeymap } from "./lib/editor/keybindings";
-import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled, setCompactSpacing, closeFloatingPreview } from "./lib/editor/live-preview";
+import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled, setCompactSpacing, closeFloatingPreview, getBiblioLabels, getDocumentAttributes } from "./lib/editor/live-preview";
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
 import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck, setShowPluralSingular } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
@@ -72,6 +72,46 @@ function favoriteCopiesSource(context: CompletionContext): CompletionResult | nu
       },
     })),
     validFor: /^.*/,
+  };
+}
+
+// ── Attribute Autocomplete state ──
+let attributeAutocompleteEnabled = true;
+
+function attributeCompletionSource(context: CompletionContext): CompletionResult | null {
+  if (!attributeAutocompleteEnabled) return null;
+  const match = context.matchBefore(/\{[\w-]*/);
+  if (!match) return null;
+
+  const docAttrs = getDocumentAttributes();
+  if (docAttrs.size === 0) return null;
+
+  const query = match.text.slice(1).toLowerCase(); // strip leading {
+  const from = match.from + 1; // position after {
+
+  const options = [];
+  for (const [name, value] of docAttrs) {
+    if (query && !name.includes(query)) continue;
+    options.push({
+      label: name,
+      detail: value.length > 40 ? value.slice(0, 40) + "\u2026" : value,
+      type: "variable" as const,
+      apply: (view: any, _c: any, _from: number, to: number) => {
+        const insert = name + "}";
+        view.dispatch({
+          changes: { from, to, insert },
+          selection: { anchor: from + insert.length },
+        });
+      },
+    });
+  }
+
+  if (options.length === 0) return null;
+
+  return {
+    from,
+    options,
+    validFor: /^[\w-]*/,
   };
 }
 
@@ -570,7 +610,7 @@ function createEditor(container: HTMLElement, content: string) {
       placeholder("Write AsciiDoc here..."),
       asciidocLanguage(),
       spellcheckCompartment.of(spellcheckEnabled ? spellcheckExtension() : []),
-      wikiLinkCompletion([favoriteCopiesSource]),
+      wikiLinkCompletion([favoriteCopiesSource, attributeCompletionSource]),
       keymap.of([
         ...asciidocKeymap,
         ...defaultKeymap,
@@ -997,6 +1037,9 @@ function handleMessage(msg: any) {
       favoriteCopies = favoriteCopies.slice(0, favoriteCopiesMaxLength);
     }
   }
+  if (msg.type === "updateAttributeAutocomplete") {
+    attributeAutocompleteEnabled = msg.enabled !== false;
+  }
 }
 
 // =====================================================
@@ -1336,6 +1379,9 @@ function init() {
     }
     if (response.favoriteCopiesMaxLength != null) {
       favoriteCopiesMaxLength = Math.max(1, Math.min(100, response.favoriteCopiesMaxLength));
+    }
+    if (response.attributeAutocomplete != null) {
+      attributeAutocompleteEnabled = response.attributeAutocomplete !== false;
     }
 
     // Load initial note if available
