@@ -86,6 +86,8 @@ interface StemBlockInfo {
   openLine: number;   // line with opening ++++
   closeLine: number;  // line with closing ++++
   rawNotation: "stem" | "latexmath" | "asciimath"; // original attribute value
+  width: number;      // display width percentage (10-100, default 100)
+  align: "left" | "center" | "right";
 }
 
 interface MermaidBlockInfo {
@@ -94,6 +96,7 @@ interface MermaidBlockInfo {
   openLine: number;   // line with opening ----
   closeLine: number;  // line with closing ----
   width: number;      // display width percentage (10-100, default 100)
+  align: "left" | "center" | "right";
 }
 
 interface DocHeaderBlockInfo {
@@ -317,9 +320,14 @@ let pendingPreviewClickVisibleText: string | null = null;
 let suppressNextClick = false; // Prevents CM6 click from overriding cursor after widget mouseup
 let blockEditorOverlay: HTMLDivElement | null = null;
 let overlayEditingMode = false;
+let docAttributesVisible = true;
 
 export function setOverlayEditingEnabled(enabled: boolean) {
   overlayEditingMode = enabled;
+}
+
+export function setDocAttributesVisible(visible: boolean) {
+  docAttributesVisible = visible;
 }
 
 function clearPendingPreviewClick() {
@@ -543,13 +551,19 @@ function serializeBlockquote(author: string, content: string, hadAttributeLine: 
   return lines.join("\n");
 }
 
-function serializeStemBlock(notation: string, expression: string): string {
-  return `[${notation}]\n++++\n${expression}\n++++`;
+function serializeBlockAttrs(base: string, width?: number, align?: string, defaultWidth: number = 100): string {
+  const parts = [base];
+  if (width && width !== defaultWidth) parts.push(`width=${width}%`);
+  if (align && align !== "center") parts.push(`align=${align}`);
+  return `[${parts.join(",")}]`;
 }
 
-function serializeMermaidBlock(source: string, width?: number): string {
-  const attr = width && width < 100 ? `[mermaid,width=${width}%]` : "[mermaid]";
-  return `${attr}\n----\n${source}\n----`;
+function serializeStemBlock(notation: string, expression: string, width?: number, align?: string): string {
+  return `${serializeBlockAttrs(notation, width, align)}\n++++\n${expression}\n++++`;
+}
+
+function serializeMermaidBlock(source: string, width?: number, align?: string): string {
+  return `${serializeBlockAttrs("mermaid", width, align)}\n----\n${source}\n----`;
 }
 
 function deleteBlockRange(view: EditorView, blockFrom: number, blockTo: number) {
@@ -666,6 +680,20 @@ function makeBlockEditorButton(label: string, kind: "primary" | "secondary" = "s
   button.className = `cm-lp-block-editor-btn cm-lp-block-editor-btn-${kind}`;
   button.textContent = label;
   return button;
+}
+
+function makeBlockAlignSelect(initial: string = "center"): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.className = "cm-lp-block-editor-input";
+  select.style.cssText = "padding:6px 10px;font-size:0.85rem;min-width:0";
+  for (const val of ["left", "center", "right"] as const) {
+    const opt = document.createElement("option");
+    opt.value = val;
+    opt.textContent = val.charAt(0).toUpperCase() + val.slice(1);
+    select.appendChild(opt);
+  }
+  select.value = initial;
+  return select;
 }
 
 function openBibliographyEditorModal(
@@ -1170,9 +1198,12 @@ function openTableBlockEditorModal(
   scaleHeader.className = "cm-lp-block-editor-range-header";
   scaleHeader.innerHTML = "<span class='cm-lp-block-editor-label'>SCALE</span>";
   scaleHeader.appendChild(scaleValue);
+  // Parse initial table alignment from attr line
+  const tableAlignMatch = (attrs.rawLine || "").match(/align=(left|center|right)/);
+  const tableAlignSelect = makeBlockAlignSelect(tableAlignMatch ? tableAlignMatch[1] : "center");
   const scaleField = document.createElement("div");
   scaleField.className = "cm-lp-block-editor-footer-scale";
-  scaleField.append(scaleHeader, scaleInput);
+  scaleField.append(scaleHeader, scaleInput, tableAlignSelect);
 
   const deleteBtn = makeBlockEditorButton("Delete Table");
   deleteBtn.classList.add("cm-lp-block-editor-btn-danger");
@@ -1206,6 +1237,21 @@ function openTableBlockEditorModal(
     } else {
       // 100% = default, remove width attr
       rawLine = rawLine.replace(/,?\s*width\s*=\s*"?\d+%?"?/, "");
+      rawLine = rawLine.replace(/\[,+/, "[").replace(/,+\]/, "]").replace(/,,+/g, ",");
+      if (rawLine === "[]") rawLine = "";
+    }
+    // Update align in the attr line
+    const newAlign = tableAlignSelect.value;
+    if (newAlign !== "center") {
+      if (/align\s*=/.test(rawLine)) {
+        rawLine = rawLine.replace(/align\s*=\s*(left|center|right)/, `align=${newAlign}`);
+      } else if (rawLine) {
+        rawLine = rawLine.replace(/\]$/, `,align=${newAlign}]`);
+      } else {
+        rawLine = `[align=${newAlign}]`;
+      }
+    } else {
+      rawLine = rawLine.replace(/,?\s*align\s*=\s*(left|center|right)/, "");
       rawLine = rawLine.replace(/\[,+/, "[").replace(/,+\]/, "]").replace(/,,+/g, ",");
       if (rawLine === "[]") rawLine = "";
     }
@@ -1334,8 +1380,10 @@ function openStemBlockEditorModal(
   notation: "stem" | "latexmath" | "asciimath",
   blockFrom: number,
   blockTo: number,
+  initialWidth: number = 100,
+  initialAlign: "left" | "center" | "right" = "center",
 ) {
-  const { overlay, body, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Math Block");
+  const { overlay, body, footer, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Math Block");
 
   // ── Notation selector ──
   const notationSelect = document.createElement("select");
@@ -1386,6 +1434,31 @@ function openStemBlockEditorModal(
   notationSelect.addEventListener("change", updatePreview);
   body.appendChild(preview);
 
+  // ── Scale slider (appended to footer later) ──
+  let currentWidth = initialWidth;
+  const scaleValue = document.createElement("span");
+  scaleValue.className = "cm-lp-block-editor-range-value";
+  scaleValue.textContent = `${initialWidth}%`;
+  const scaleSlider = document.createElement("input");
+  scaleSlider.type = "range";
+  scaleSlider.className = "cm-lp-block-editor-range";
+  scaleSlider.min = "10";
+  scaleSlider.max = "200";
+  scaleSlider.step = "5";
+  scaleSlider.value = String(initialWidth);
+  scaleSlider.addEventListener("input", () => {
+    currentWidth = parseInt(scaleSlider.value);
+    scaleValue.textContent = `${currentWidth}%`;
+  });
+  const scaleHeader = document.createElement("div");
+  scaleHeader.className = "cm-lp-block-editor-range-header";
+  scaleHeader.innerHTML = "<span class='cm-lp-block-editor-label'>SCALE</span>";
+  scaleHeader.appendChild(scaleValue);
+  const alignSelect = makeBlockAlignSelect(initialAlign);
+  const scaleField = document.createElement("div");
+  scaleField.className = "cm-lp-block-editor-footer-scale";
+  scaleField.append(scaleHeader, scaleSlider, alignSelect);
+
   // ── Footer buttons ──
   const deleteBtn = makeBlockEditorButton("Delete Math Block");
   deleteBtn.classList.add("cm-lp-block-editor-btn-danger");
@@ -1407,12 +1480,13 @@ function openStemBlockEditorModal(
       changes: {
         from: blockFrom,
         to: blockTo,
-        insert: serializeStemBlock(n, mathInput.value),
+        insert: serializeStemBlock(n, mathInput.value, currentWidth, alignSelect.value),
       },
     });
     close();
   });
 
+  footer.insertBefore(scaleField, footerRight);
   footerRight.append(cancelBtn, saveBtn);
   requestAnimationFrame(() => { overlay.focus(); mathInput.focus(); });
 }
@@ -1519,6 +1593,7 @@ function openMermaidBlockEditorModal(
   blockFrom: number,
   blockTo: number,
   initialWidth: number = 100,
+  initialAlign: "left" | "center" | "right" = "center",
 ) {
   const { overlay, modal, body, footer, footerLeft, footerRight, close } = createBlockEditorModal(view, "Edit Mermaid Diagram");
   modal.style.width = "min(1200px, 100%)";
@@ -1646,9 +1721,10 @@ function openMermaidBlockEditorModal(
   scaleHeader.className = "cm-lp-block-editor-range-header";
   scaleHeader.innerHTML = "<span class='cm-lp-block-editor-label'>SCALE</span>";
   scaleHeader.appendChild(scaleValue);
+  const mermaidAlignSelect = makeBlockAlignSelect(initialAlign);
   const scaleField = document.createElement("div");
   scaleField.className = "cm-lp-block-editor-footer-scale";
-  scaleField.append(scaleHeader, scaleSlider);
+  scaleField.append(scaleHeader, scaleSlider, mermaidAlignSelect);
 
   // ── Source textarea ──
   const sourceInput = document.createElement("textarea");
@@ -1786,7 +1862,7 @@ function openMermaidBlockEditorModal(
       changes: {
         from: blockFrom,
         to: blockTo,
-        insert: serializeMermaidBlock(sourceInput.value, currentWidth),
+        insert: serializeMermaidBlock(sourceInput.value, currentWidth, mermaidAlignSelect.value),
       },
     });
     closeWithCleanup();
@@ -2363,7 +2439,7 @@ function openPreviewBlockModal(view: EditorView, blockInfo: { block: BlockInfo; 
       if (mathContent) mathContent += "\n";
       mathContent += view.state.doc.line(j).text;
     }
-    openStemBlockEditorModal(view, mathContent, block.rawNotation, blockFrom, blockTo);
+    openStemBlockEditorModal(view, mathContent, block.rawNotation, blockFrom, blockTo, block.width, block.align);
     return true;
   }
 
@@ -2373,7 +2449,7 @@ function openPreviewBlockModal(view: EditorView, blockInfo: { block: BlockInfo; 
       if (diagramSource) diagramSource += "\n";
       diagramSource += view.state.doc.line(j).text;
     }
-    openMermaidBlockEditorModal(view, diagramSource, blockFrom, blockTo, block.width);
+    openMermaidBlockEditorModal(view, diagramSource, blockFrom, blockTo, block.width, block.align);
     return true;
   }
 
@@ -2746,12 +2822,17 @@ function detectBlocks(doc: any): BlockInfo[] {
       }
     }
 
-    // Detect stem block: [stem|latexmath|asciimath] followed by ++++
-    const stemAttrMatch = text.match(/^\[(stem|latexmath|asciimath)\]$/);
+    // Detect stem block: [stem|latexmath|asciimath] or [stem,width=N%] followed by ++++
+    const stemAttrMatch = text.match(/^\[(stem|latexmath|asciimath)(?:,([^\]]*))?\]$/);
     if (stemAttrMatch && i + 1 <= doc.lines) {
       const nextText = doc.line(i + 1).text.trim();
       if (/^\+{4,}$/.test(nextText)) {
         const rawNotation = stemAttrMatch[1] as "stem" | "latexmath" | "asciimath";
+        const stemAttrs = stemAttrMatch[2] || "";
+        const stemWidthMatch = stemAttrs.match(/width=(\d+)%?/);
+        const stemWidth = stemWidthMatch ? Math.max(10, Math.min(200, parseInt(stemWidthMatch[1], 10))) : 100;
+        const stemAlignMatch = stemAttrs.match(/align=(left|center|right)/);
+        const stemAlign = (stemAlignMatch ? stemAlignMatch[1] : "center") as "left" | "center" | "right";
         let closeLine = -1;
         for (let j = i + 2; j <= doc.lines; j++) {
           if (/^\+{4,}$/.test(doc.line(j).text.trim())) {
@@ -2766,6 +2847,8 @@ function detectBlocks(doc: any): BlockInfo[] {
             openLine: i + 1,
             closeLine,
             rawNotation,
+            width: stemWidth,
+            align: stemAlign,
           });
           i = closeLine + 1;
           continue;
@@ -2790,7 +2873,9 @@ function detectBlocks(doc: any): BlockInfo[] {
           const mermaidAttrs = mermaidMatch[1] || "";
           const mermaidWidthMatch = mermaidAttrs.match(/width=(\d+)%?/);
           const mermaidWidth = mermaidWidthMatch ? Math.max(10, Math.min(100, parseInt(mermaidWidthMatch[1]))) : 100;
-          blocks.push({ type: "mermaid", attrLine: i, openLine: i + 1, closeLine, width: mermaidWidth });
+          const mermaidAlignMatch = mermaidAttrs.match(/align=(left|center|right)/);
+          const mermaidAlign = (mermaidAlignMatch ? mermaidAlignMatch[1] : "center") as "left" | "center" | "right";
+          blocks.push({ type: "mermaid", attrLine: i, openLine: i + 1, closeLine, width: mermaidWidth, align: mermaidAlign });
           i = closeLine + 1;
           continue;
         }
@@ -4106,6 +4191,8 @@ class StemBlockPreviewWidget extends WidgetType {
     readonly lineFrom: number,
     readonly blockFrom: number,
     readonly blockTo: number,
+    readonly width: number = 100,
+    readonly align: "left" | "center" | "right" = "center",
   ) { super(); }
 
   toDOM(): HTMLElement {
@@ -4114,11 +4201,20 @@ class StemBlockPreviewWidget extends WidgetType {
     wrap.setAttribute(LINE_HEIGHT_DATA_ATTR, String(this.lineFrom));
 
     attachBlockModalHandlers(wrap, (view) => {
-      openStemBlockEditorModal(view, this.expression, this.rawNotation, this.blockFrom, this.blockTo);
+      openStemBlockEditorModal(view, this.expression, this.rawNotation, this.blockFrom, this.blockTo, this.width, this.align);
     });
 
+    if (this.align === "left") { wrap.style.textAlign = "left"; }
+    else if (this.align === "right") { wrap.style.textAlign = "right"; }
+    else { wrap.style.textAlign = "center"; }
     const content = document.createElement("div");
     content.className = "cm-lp-stemblock-content";
+    if (this.width !== 100) {
+      const s = this.width / 100;
+      content.style.display = "inline-block";
+      content.style.transform = `scale(${s})`;
+      content.style.transformOrigin = this.align === "right" ? "top right" : this.align === "left" ? "top left" : "top center";
+    }
     content.innerHTML = renderMath(this.expression, resolveStemNotation(this.rawNotation), true);
     wrap.appendChild(content);
     return wrap;
@@ -4129,7 +4225,9 @@ class StemBlockPreviewWidget extends WidgetType {
       && this.rawNotation === other.rawNotation
       && this.lineFrom === other.lineFrom
       && this.blockFrom === other.blockFrom
-      && this.blockTo === other.blockTo;
+      && this.blockTo === other.blockTo
+      && this.width === other.width
+      && this.align === other.align;
   }
 
   ignoreEvent(event: Event): boolean {
@@ -4154,6 +4252,7 @@ class MermaidBlockPreviewWidget extends WidgetType {
     readonly blockFrom: number,
     readonly blockTo: number,
     readonly width: number,
+    readonly align: "left" | "center" | "right" = "center",
   ) { super(); }
 
   toDOM(): HTMLElement {
@@ -4163,12 +4262,13 @@ class MermaidBlockPreviewWidget extends WidgetType {
 
     if (this.width < 100) {
       wrap.style.maxWidth = `${this.width}%`;
-      wrap.style.marginLeft = "auto";
-      wrap.style.marginRight = "auto";
     }
+    if (this.align === "left") { wrap.style.marginRight = "auto"; }
+    else if (this.align === "right") { wrap.style.marginLeft = "auto"; }
+    else { wrap.style.marginLeft = "auto"; wrap.style.marginRight = "auto"; }
 
     attachBlockModalHandlers(wrap, (view) => {
-      openMermaidBlockEditorModal(view, this.source, this.blockFrom, this.blockTo, this.width);
+      openMermaidBlockEditorModal(view, this.source, this.blockFrom, this.blockTo, this.width, this.align);
     });
 
     const content = document.createElement("div");
@@ -4195,7 +4295,8 @@ class MermaidBlockPreviewWidget extends WidgetType {
       && this.lineFrom === other.lineFrom
       && this.blockFrom === other.blockFrom
       && this.blockTo === other.blockTo
-      && this.width === other.width;
+      && this.width === other.width
+      && this.align === other.align;
   }
 
   ignoreEvent(event: Event): boolean {
@@ -5639,13 +5740,17 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
         // heading reveals the author line and attributes for editing.
         const titleOnCursor = editorHasFocus && block.titleLine > 0 && cursorLine === block.titleLine;
         if (!cursorInBlock && !titleOnCursor) {
-          const firstLine = doc.line(blockStart);
-          builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
-          builder.add(firstLine.from, firstLine.to, Decoration.replace({
-            widget: new DocHeaderWidget(block.title, block.attributes, firstLine.from),
-          }));
-          // Hide remaining lines
-          for (let j = blockStart + 1; j <= blockEnd; j++) {
+          if (docAttributesVisible) {
+            // Show the Document Attributes widget
+            const firstLine = doc.line(blockStart);
+            builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
+            builder.add(firstLine.from, firstLine.to, Decoration.replace({
+              widget: new DocHeaderWidget(block.title, block.attributes, firstLine.from),
+            }));
+          }
+          // Hide remaining lines (or all lines when widget is hidden)
+          const hideFrom = docAttributesVisible ? blockStart + 1 : blockStart;
+          for (let j = hideFrom; j <= blockEnd; j++) {
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
@@ -5874,6 +5979,8 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               firstLine.from,
               fromPos,
               toPos,
+              block.width,
+              block.align,
             ),
           }));
           // Hide remaining lines
@@ -5912,6 +6019,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               fromPos,
               toPos,
               block.width,
+              block.align,
             ),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {

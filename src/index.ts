@@ -934,6 +934,14 @@ async function registerSettings() {
       label: "Attribute Autocomplete",
       description: "When enabled, typing { shows an autocomplete menu for document attributes defined in the header.",
     },
+    "asciidoc.spellCheck": {
+      section: "asciidoc",
+      public: true,
+      type: 3, // Boolean
+      value: true,
+      label: "Spell Checker",
+      description: "Enable or disable the spell checker in the editor.",
+    },
   });
 }
 
@@ -1014,6 +1022,7 @@ joplin.plugins.register({
               favoriteCopies: await joplin.settings.value("asciidoc.favoriteCopies") !== false,
               favoriteCopiesMaxLength: parseInt(String(await joplin.settings.value("asciidoc.favoriteCopiesMaxLength") || 20), 10),
               attributeAutocomplete: await joplin.settings.value("asciidoc.attributeAutocomplete") !== false,
+              spellCheck: await joplin.settings.value("asciidoc.spellCheck") !== false,
             };
             try {
               const note = await joplin.workspace.selectedNote();
@@ -1222,6 +1231,16 @@ joplin.plugins.register({
             }
           }
 
+          // Remove a specific note from templates by ID
+          if (msg.type === "removeTemplate" && msg.noteId) {
+            try {
+              await joplin.data.delete(["tags", templateTagId, "notes", msg.noteId]);
+              return { status: "ok" };
+            } catch {
+              return { status: "error" };
+            }
+          }
+
           // Get spell-check settings
           if (msg.type === "getSpellcheckSettings") {
             try {
@@ -1328,6 +1347,12 @@ joplin.plugins.register({
             editors.postMessage(handle, {
               type: "updateAttributeAutocomplete",
               enabled: await joplin.settings.value("asciidoc.attributeAutocomplete") !== false,
+            });
+          }
+          if (event.keys.includes("asciidoc.spellCheck")) {
+            editors.postMessage(handle, {
+              type: "updateSpellCheck",
+              enabled: await joplin.settings.value("asciidoc.spellCheck") !== false,
             });
           }
         });

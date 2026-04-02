@@ -58,6 +58,10 @@ export async function unmarkTemplate(): Promise<void> {
   await webviewApi.postMessage({ type: "unmarkTemplate" });
 }
 
+export async function removeTemplate(noteId: string): Promise<void> {
+  await webviewApi.postMessage({ type: "removeTemplate", noteId });
+}
+
 export async function getSpellcheckSettings(): Promise<{ pluralSingular: boolean }> {
   return webviewApi.postMessage({ type: "getSpellcheckSettings" });
 }

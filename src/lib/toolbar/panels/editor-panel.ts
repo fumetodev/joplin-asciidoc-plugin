@@ -2,7 +2,7 @@ export interface EditorPanelOptions {
   onToggleLineNumbers: (show: boolean) => void;
   onToggleBlockShading: (show: boolean) => void;
   onToggleOverlayEditing: (show: boolean) => void;
-  onToggleSpellCheck: (enabled: boolean) => void;
+  onToggleDocAttributes: (show: boolean) => void;
   onToggleFullscreen: (enabled: boolean) => void;
   onToggleAutoHide: (enabled: boolean) => void;
   onMarginChange: (px: number) => void;
@@ -52,22 +52,22 @@ export function buildEditorPanel(options: EditorPanelOptions, initialMargin?: nu
   lineNumLabel.appendChild(lineNumSpan);
   displayToggles.appendChild(lineNumLabel);
 
-  // Spell Checker checkbox
-  const spellLabel = document.createElement("label");
-  spellLabel.className = "ribbon-toggle";
-  const spellCb = document.createElement("input");
-  spellCb.type = "checkbox";
-  const savedSpellCheck = localStorage.getItem("asciidoc-spellcheck");
-  spellCb.checked = savedSpellCheck === null ? true : savedSpellCheck === "true";
-  spellCb.addEventListener("input", () => {
-    options.onToggleSpellCheck(spellCb.checked);
-    localStorage.setItem("asciidoc-spellcheck", String(spellCb.checked));
+  // Document Attributes checkbox
+  const docAttrLabel = document.createElement("label");
+  docAttrLabel.className = "ribbon-toggle";
+  const docAttrCb = document.createElement("input");
+  docAttrCb.type = "checkbox";
+  const savedDocAttr = localStorage.getItem("asciidoc-doc-attributes");
+  docAttrCb.checked = savedDocAttr === null ? true : savedDocAttr === "true";
+  docAttrCb.addEventListener("input", () => {
+    options.onToggleDocAttributes(docAttrCb.checked);
+    localStorage.setItem("asciidoc-doc-attributes", String(docAttrCb.checked));
   });
-  const spellSpan = document.createElement("span");
-  spellSpan.textContent = "Spell Checker";
-  spellLabel.appendChild(spellCb);
-  spellLabel.appendChild(spellSpan);
-  displayToggles.appendChild(spellLabel);
+  const docAttrSpan = document.createElement("span");
+  docAttrSpan.textContent = "Document Attributes";
+  docAttrLabel.appendChild(docAttrCb);
+  docAttrLabel.appendChild(docAttrSpan);
+  displayToggles.appendChild(docAttrLabel);
 
   wrapper.appendChild(createRibbonSection("Editor", displayToggles));
 

@@ -12,7 +12,7 @@ import { type CompletionContext, type CompletionResult, startCompletion, complet
 import { bracketMatching } from "@codemirror/language";
 import { asciidocLanguage } from "./lib/editor/asciidoc-language";
 import { asciidocKeymap } from "./lib/editor/keybindings";
-import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled, setCompactSpacing, closeFloatingPreview, getBiblioLabels, getDocumentAttributes } from "./lib/editor/live-preview";
+import { livePreview, refreshLivePreview, updateResourceUrls, setOverlayEditingEnabled, setCompactSpacing, setDocAttributesVisible, closeFloatingPreview, getBiblioLabels, getDocumentAttributes } from "./lib/editor/live-preview";
 import { wikiLinkCompletion } from "./lib/editor/wiki-link-completion";
 import { spellcheckExtension, loadPersonalDictionary, onDictionaryChange, refreshSpellcheck, setShowPluralSingular } from "./lib/editor/spellcheck";
 import { buildRibbon } from "./lib/toolbar/ribbon";
@@ -118,6 +118,8 @@ function attributeCompletionSource(context: CompletionContext): CompletionResult
 // Sync initial state to live-preview module
 setOverlayEditingEnabled(overlayEditingEnabled);
 setCompactSpacing(compactSpacingEnabled);
+const savedDocAttr = localStorage.getItem("asciidoc-doc-attributes");
+setDocAttributesVisible(savedDocAttr === null ? true : savedDocAttr === "true");
 
 // Highlight removal helpers
 const backgroundHighlightPattern = /\[\.[a-z-]+-background\]#([^#]+)#/g;
@@ -1040,6 +1042,11 @@ function handleMessage(msg: any) {
   if (msg.type === "updateAttributeAutocomplete") {
     attributeAutocompleteEnabled = msg.enabled !== false;
   }
+  if (msg.type === "updateSpellCheck") {
+    spellcheckEnabled = msg.enabled !== false;
+    updateSpellcheck();
+    localStorage.setItem("asciidoc-spellcheck", String(spellcheckEnabled));
+  }
 }
 
 // =====================================================
@@ -1248,9 +1255,9 @@ function init() {
         overlayEditingEnabled = enabled;
         setOverlayEditingEnabled(enabled);
       },
-      onToggleSpellCheck(enabled: boolean) {
-        spellcheckEnabled = enabled;
-        updateSpellcheck();
+      onToggleDocAttributes(show: boolean) {
+        setDocAttributesVisible(show);
+        refreshLivePreview(editorView!);
       },
       onToggleFullscreen(enabled: boolean) {
         setFullscreen(enabled);
@@ -1382,6 +1389,11 @@ function init() {
     }
     if (response.attributeAutocomplete != null) {
       attributeAutocompleteEnabled = response.attributeAutocomplete !== false;
+    }
+    if (response.spellCheck != null) {
+      spellcheckEnabled = response.spellCheck !== false;
+      localStorage.setItem("asciidoc-spellcheck", String(spellcheckEnabled));
+      updateSpellcheck();
     }
 
     // Load initial note if available

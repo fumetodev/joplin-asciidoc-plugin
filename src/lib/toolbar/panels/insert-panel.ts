@@ -19,7 +19,7 @@ import {
   insertText,
   positionDropdown,
 } from "../toolbar-actions";
-import { openImageDialog, createResourceFromFile, getTemplates, getTemplateContent, markAsTemplate } from "../../ipc";
+import { openImageDialog, createResourceFromFile, getTemplates, getTemplateContent, markAsTemplate, removeTemplate } from "../../ipc";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -805,10 +805,13 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
       }
       for (let i = 0; i < filtered.length; i++) {
         const template = filtered[i];
+        const row = document.createElement("div");
+        row.className = "template-option-row";
+        if (i === templateHighlightIndex) row.classList.add("active");
+        if (template.id === selectedTemplateId) row.classList.add("selected");
+
         const btn = document.createElement("button");
         btn.className = "template-option";
-        if (i === templateHighlightIndex) btn.classList.add("active");
-        if (template.id === selectedTemplateId) btn.classList.add("selected");
         btn.textContent = template.title;
         btn.addEventListener("click", () => {
           selectedTemplateId = template.id;
@@ -816,12 +819,33 @@ export function buildInsertPanel(): { element: HTMLElement; cleanup: () => void 
           searchInput.value = templateQuery;
           templateActionError = "";
           actionErrorDiv.style.display = "none";
-          // Update highlight index to match selection
           const filtered = getFilteredTemplates();
           templateHighlightIndex = Math.max(0, filtered.findIndex((c) => c.id === template.id));
           renderOptions();
         });
-        optionsDiv.appendChild(btn);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "template-delete-btn";
+        deleteBtn.title = "Remove from templates";
+        deleteBtn.textContent = "\u00D7";
+        deleteBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          try {
+            await removeTemplate(template.id);
+            templateOptions = templateOptions.filter((t) => t.id !== template.id);
+            if (selectedTemplateId === template.id) selectedTemplateId = "";
+            templateHighlightIndex = -1;
+            renderOptions();
+          } catch (error) {
+            templateActionError = "Couldn't remove the template.";
+            actionErrorDiv.textContent = templateActionError;
+            actionErrorDiv.style.display = "";
+          }
+        });
+
+        row.appendChild(btn);
+        row.appendChild(deleteBtn);
+        optionsDiv.appendChild(row);
       }
       insertBtn.disabled = !getResolvedTemplate();
     }
