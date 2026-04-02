@@ -222,9 +222,12 @@ function attachPreviewFocusHandlers(
     const target = e.target as HTMLElement;
     if (shouldIgnoreTarget(target)) return;
 
-    // Capture character offset in the rendered text BEFORE consuming the event
-    pendingPreviewClickCharOffset = getVisibleTextOffset(element, e.clientX, e.clientY);
-    pendingPreviewClickVisibleText = element.textContent ?? null;
+    // Capture character offset in the rendered text BEFORE consuming the event.
+    // For list/admon items, scope to the content element to exclude rendered
+    // markers (e.g., "1.", "•", "Note") that don't appear in the raw text.
+    const contentEl = (target.closest(".cm-lp-list-content, .cm-lp-admon-text") ?? element) as HTMLElement;
+    pendingPreviewClickCharOffset = getVisibleTextOffset(contentEl, e.clientX, e.clientY);
+    pendingPreviewClickVisibleText = contentEl.textContent ?? null;
 
     consumeEvent(e);
     const view = getEditorViewFromElement(element);
@@ -309,6 +312,7 @@ let pendingPreviewClickFrom: number | null = null;
 let pendingPreviewClickAnchorTop: number | null = null;
 let pendingPreviewClickCharOffset: number | null = null;
 let pendingPreviewClickVisibleText: string | null = null;
+let suppressNextClick = false; // Prevents CM6 click from overriding cursor after widget mouseup
 let blockEditorOverlay: HTMLDivElement | null = null;
 let overlayEditingMode = false;
 
@@ -325,19 +329,70 @@ function clearPendingPreviewClick() {
 
 /** Get the visible-text character offset at a click point within an element. */
 function getVisibleTextOffset(container: HTMLElement, x: number, y: number): number | null {
+  // Primary: caretRangeFromPoint (works when text is selectable)
   const range = document.caretRangeFromPoint(x, y);
-  if (!range || !container.contains(range.startContainer)) return null;
-
-  let offset = 0;
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    if (node === range.startContainer) {
-      return offset + range.startOffset;
+  if (range && container.contains(range.startContainer)) {
+    let offset = 0;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (node === range.startContainer) {
+        return offset + range.startOffset;
+      }
+      offset += node.textContent?.length ?? 0;
     }
-    offset += node.textContent?.length ?? 0;
   }
-  return null;
+
+  // Fallback: measure character positions via Range rects.
+  // Needed when CM6 widget styles (user-select:none etc.) break caretRangeFromPoint.
+  const textNodes: Text[] = [];
+  const fallbackWalker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let tn: Node | null;
+  while ((tn = fallbackWalker.nextNode())) textNodes.push(tn as Text);
+  if (textNodes.length === 0) return null;
+
+  let bestOffset = 0;
+  let bestDist = Infinity;
+  let globalOffset = 0;
+  const probe = document.createRange();
+
+  for (const textNode of textNodes) {
+    const len = textNode.length;
+    if (len === 0) continue;
+
+    // Quick check: skip text nodes not on the same vertical line
+    probe.selectNodeContents(textNode);
+    const nodeRect = probe.getBoundingClientRect();
+    if (nodeRect.bottom < y || nodeRect.top > y) {
+      globalOffset += len;
+      continue;
+    }
+
+    // Binary search for closest character boundary
+    let lo = 0;
+    let hi = len;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      probe.setStart(textNode, mid);
+      probe.setEnd(textNode, mid);
+      const midX = probe.getBoundingClientRect().left;
+      if (midX < x) lo = mid + 1;
+      else hi = mid;
+    }
+    // Check lo and lo-1 to find the closest boundary
+    for (const idx of [Math.max(0, lo - 1), Math.min(lo, len)]) {
+      probe.setStart(textNode, idx);
+      probe.setEnd(textNode, idx);
+      const dist = Math.abs(probe.getBoundingClientRect().left - x);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestOffset = globalOffset + idx;
+      }
+    }
+    globalOffset += len;
+  }
+
+  return bestDist < Infinity ? bestOffset : null;
 }
 
 /**
@@ -449,6 +504,8 @@ function focusPreviewLine(view: EditorView, lineFrom: number) {
     const rawText = line.text;
     const rawOffset = mapVisibleOffsetToRaw(rawText, visibleText, charOffset);
     anchor = line.from + Math.min(rawOffset, rawText.length);
+    // Suppress the upcoming click event so CM6 doesn't override our mapped position
+    suppressNextClick = true;
   }
 
   view.dispatch({
@@ -7528,6 +7585,13 @@ const xrefClickHandler = EditorView.domEventHandlers({
   },
 
   click(event, view) {
+    // After a widget mouseup already placed the cursor via char-offset mapping,
+    // suppress this click so CM6 doesn't override the position.
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      consumeEvent(event);
+      return true;
+    }
     if (pendingPreviewClickFrom == null) return false;
     consumeEvent(event);
     focusPreviewLine(view, pendingPreviewClickFrom);
