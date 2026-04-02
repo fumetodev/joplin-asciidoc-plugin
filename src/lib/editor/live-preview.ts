@@ -4210,10 +4210,7 @@ class StemBlockPreviewWidget extends WidgetType {
     const content = document.createElement("div");
     content.className = "cm-lp-stemblock-content";
     if (this.width !== 100) {
-      const s = this.width / 100;
-      content.style.display = "inline-block";
-      content.style.transform = `scale(${s})`;
-      content.style.transformOrigin = this.align === "right" ? "top right" : this.align === "left" ? "top left" : "top center";
+      content.style.fontSize = `${this.width}%`;
     }
     content.innerHTML = renderMath(this.expression, resolveStemNotation(this.rawNotation), true);
     wrap.appendChild(content);
