@@ -518,11 +518,16 @@ function focusPreviewLine(view: EditorView, lineFrom: number) {
     suppressNextClick = true;
   }
 
+  // Focus BEFORE dispatching so that editorHasActiveFocus() is true during
+  // the decoration rebuild. Without this, the dispatch triggers a rebuild with
+  // editorHasFocus=false (all lines rendered as widgets), then view.focus()
+  // triggers a SECOND rebuild with editorHasFocus=true (cursor line raw).
+  // The two-phase decoration swap confuses CM6's height oracle, causing massive
+  // scroll jumps (hundreds of pixels) on heading-to-heading clicks.
+  view.focus();
   view.dispatch({
     selection: { anchor },
   });
-  view.focus();
-  preserveViewportAfterUpdate(view, lineFrom, anchorTop, scrollTop, scrollLeft);
 }
 
 function serializeCodeBlock(language: string, code: string, hadAttributeLine: boolean): string {
@@ -2141,17 +2146,19 @@ function stabilizedLineDecoration(renderedHeightPx: number, rawHeightPx: number)
     return null;
   }
 
-  const safeRawHeight = Math.ceil(rawHeightPx);
-  const safeRenderedHeight = Math.ceil(renderedHeightPx);
-  const heightDelta = Math.max(0, safeRenderedHeight - safeRawHeight);
-  const paddingTop = Math.floor(heightDelta / 2);
-  const paddingBottom = Math.ceil(heightDelta / 2);
+  // Use exact floating-point values — no Math.ceil/Math.floor rounding.
+  // Sub-pixel mismatches between the padded raw line and the rendered widget
+  // cause CM6's height oracle to detect changes on every measure cycle,
+  // leading to "Measure loop restarted more than 5 times" oscillation and
+  // massive scroll jumps when switching between different heading levels.
+  const heightDelta = renderedHeightPx - rawHeightPx;
+  const paddingTop = heightDelta / 2;
+  const paddingBottom = heightDelta / 2;
 
   return Decoration.line({
     class: "cm-lp-stabilized-line",
     attributes: {
       style: [
-        `min-height:${safeRawHeight}px`,
         `padding-top:${paddingTop}px`,
         `padding-bottom:${paddingBottom}px`,
       ].join(";"),
@@ -3393,7 +3400,8 @@ export function closeFloatingPreview() {
 }
 
 class PreviewLineWidget extends WidgetType {
-  constructor(readonly html: string, readonly lineFrom: number) { super(); }
+  constructor(readonly html: string, readonly lineFrom: number, readonly cachedHeight: number = -1) { super(); }
+  get estimatedHeight(): number { return this.cachedHeight; }
   toDOM(): HTMLElement {
     const span = document.createElement("span");
     span.className = "cm-live-preview-line";
@@ -5751,7 +5759,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         }
@@ -5767,7 +5775,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         }
@@ -5789,7 +5797,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         }
@@ -5871,7 +5879,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-               builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+               builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
              }
            }
          }
@@ -5891,7 +5899,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         } else if (cursorInBlock) {
@@ -5910,7 +5918,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         }
@@ -5955,7 +5963,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         }
@@ -5985,7 +5993,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         }
@@ -6023,7 +6031,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         }
@@ -6046,7 +6054,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const line = doc.line(j);
             builder.add(line.from, line.from, hiddenLineDecoration);
             if (line.from < line.to) {
-              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+              builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
             }
           }
         }
@@ -6109,7 +6117,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       // Hide the role attribute line
       builder.add(line.from, line.from, hiddenLineDecoration);
       if (line.from < line.to) {
-        builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from) }));
+        builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget("", line.from, 0) }));
       }
       i++;
       continue;
@@ -6198,7 +6206,8 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
         .replace(/;?margin:[^;"]*/g, (m) => m.replace(/margin:[^;"]*/, "margin:0.3em 0 0"));
       html = `<span style="display:inline-block;width:100%;border-bottom:1px solid var(--asciidoc-border,#ddd);padding-bottom:0.3em">${html}${authorBylineHtml}</span>`;
     }
-    builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget(html, line.from) }));
+    const widgetHeight = heightCache.lineHeights.get(line.from) ?? -1;
+    builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget(html, line.from, widgetHeight) }));
 
     i++;
   }
@@ -6272,84 +6281,122 @@ const livePreviewPlugin = ViewPlugin.fromClass(
 
       // Don't lock scroll when search panel is open — search needs to scroll to matches
       const searchOpen = update.view.dom.querySelector(".cm-panel.cm-search") != null;
-      const needsScrollLock = (update.selectionSet || update.focusChanged) && !update.docChanged && !searchOpen && scrollToTarget == null;
-      // Also stabilize scroll for doc changes (paste, typing, etc.) to prevent
-      // decoration-induced viewport jumps when line heights change during rebuild.
-      // Skip for same-line edits (normal typing) — CM6 handles those fine on its
-      // own and the rAF measurement delta causes cumulative scroll drift.
       const oldLine = update.startState.doc.lineAt(update.startState.selection.main.head).number;
       const newLine = update.state.doc.lineAt(update.state.selection.main.head).number;
       const lineDistance = Math.abs(newLine - oldLine);
+      // Skip scroll lock when lineDistance is 0 (pure focus changes, within-line cursor moves)
+      // — CM6 handles these correctly and our correction can fight CM6's height oracle.
+      const needsScrollLock = (update.selectionSet || update.focusChanged) && !update.docChanged && !searchOpen && scrollToTarget == null && lineDistance > 0;
+      // Also stabilize scroll for doc changes (paste, typing) to prevent
+      // decoration-induced viewport jumps when line heights change during rebuild.
+      // Skip for same-line edits (normal typing) — CM6 handles those fine on its
+      // own and the rAF measurement delta causes cumulative scroll drift.
       const needsDocChangeStabilization = update.docChanged && lineDistance > 0 && !searchOpen && scrollToTarget == null;
+      const needsStabilization = needsScrollLock || needsDocChangeStabilization;
 
-      // Capture scroll state BEFORE rebuilding decorations
-      const scrollBefore = update.view.scrollDOM.scrollTop;
+      // Capture a STABLE ANCHOR before rebuilding decorations.
+      // The anchor is a visible line that is NOT the old or new cursor line —
+      // its height doesn't change during the decoration rebuild, so its screen
+      // position is invariant. Used for both click stabilization and doc-change
+      // stabilization (e.g., pressing Enter in a list shouldn't shift the viewport).
       let anchorScreenY: number | null = null;
-      let anchorCursorPos = -1;
-      if ((needsScrollLock && lineDistance > 4) || needsDocChangeStabilization) {
-        // Capture cursor line's screen position for anchor-based restoration
-        anchorCursorPos = update.state.selection.main.head;
-        const el = getLineElementForPosition(update.view, anchorCursorPos);
-        if (el) {
-          anchorScreenY = measureElementTopRelativeToScroller(update.view, el);
+      let anchorScrollTop = 0;
+      let anchorPos = -1;
+      if (needsStabilization) {
+        const doc = update.startState.doc;
+        const minChangeLine = Math.min(oldLine, newLine);
+        const maxChangeLine = Math.max(oldLine, newLine);
+        const vp = update.view.viewport;
+        const firstVpLine = doc.lineAt(vp.from).number;
+        const lastVpLine = doc.lineAt(Math.min(vp.to, doc.length)).number;
+        let stableLineNum = -1;
+        // Prefer a line ABOVE the change area — nothing above it changes.
+        for (let ln = minChangeLine - 1; ln >= firstVpLine; ln--) {
+          stableLineNum = ln;
+          break;
+        }
+        // If none above, try below the change area.
+        if (stableLineNum < 0) {
+          for (let ln = maxChangeLine + 1; ln <= lastVpLine; ln++) {
+            stableLineNum = ln;
+            break;
+          }
+        }
+        if (stableLineNum > 0 && stableLineNum <= doc.lines) {
+          anchorPos = doc.line(stableLineNum).from;
+        }
+        if (anchorPos >= 0) {
+          const el = getLineElementForPosition(update.view, anchorPos);
+          if (el) {
+            anchorScreenY = measureElementTopRelativeToScroller(update.view, el);
+            anchorScrollTop = update.view.scrollDOM.scrollTop;
+          }
         }
       }
 
-      if (update.docChanged || update.selectionSet || update.viewportChanged || update.focusChanged || forceRefresh) {
+      // Don't rebuild decorations on viewportChanged — decorations cover the
+      // entire document, so CM6 applies them as lines scroll into view without
+      // a rebuild. Including viewportChanged here caused a feedback loop:
+      // decoration rebuild → height changes → CM6 adjusts scroll → viewport
+      // changes → another rebuild → oscillation ("Measure loop restarted more
+      // than 5 times") with hundreds of pixels of accumulated scroll error.
+      if (update.docChanged || update.selectionSet || update.focusChanged || forceRefresh) {
         this.decorations = buildDecorations(update.view, this.heightCache);
+      }
+      // Only measure widget heights when content changed (new widgets may have
+      // appeared) or on explicit refresh. Selection/focus changes don't resize
+      // widgets — the cache already has accurate values from prior measurements.
+      // Unnecessary requestMeasure calls keep CM6's measure loop running longer,
+      // prolonging height-oracle oscillation.
+      if (update.docChanged || forceRefresh) {
         schedulePreviewHeightMeasurement(update.view, this.heightCache);
       }
 
-      if (needsScrollLock) {
-        const scroller = update.view.scrollDOM;
-
-        if (lineDistance > 4 && anchorScreenY != null && anchorCursorPos >= 0) {
-          // Distant jump (e.g., list item → heading far away):
-          // Anchor-based restoration — keeps the clicked line at its pre-click
-          // screen position despite large height changes between old/new cursor.
-          const targetScreenY = anchorScreenY;
-          const cursorPos = anchorCursorPos;
-          requestAnimationFrame(() => {
-            const el = getLineElementForPosition(update.view, cursorPos);
-            if (!el) return;
-            const currentScreenY = measureElementTopRelativeToScroller(update.view, el);
+      if (needsStabilization && anchorScreenY != null && anchorPos >= 0) {
+        const targetScreenY = anchorScreenY;
+        const scrollTopBefore = anchorScrollTop;
+        const stablePos = anchorPos;
+        const cursorHead = update.state.selection.main.head;
+        const theView = update.view;
+        // Restore scroll and pin the stable anchor at its original screen position.
+        // Applied at multiple timing points because CM6's measure loop oscillation
+        // ("Measure loop restarted more than 5 times") schedules follow-up rAFs
+        // that can undo our correction. We must run AFTER all CM6 follow-ups settle.
+        const restoreScroll = () => {
+          const scroller = theView.scrollDOM;
+          scroller.scrollTop = scrollTopBefore;
+          const el = getLineElementForPosition(theView, stablePos);
+          if (el) {
+            const currentScreenY = measureElementTopRelativeToScroller(theView, el);
             const delta = currentScreenY - targetScreenY;
             if (Math.abs(delta) > 2) {
               scroller.scrollTop += delta;
             }
-          });
-        } else {
-          // Nearby click (adjacent lines, same area):
-          // Absolute scrollTop restoration — prevents CM6's scroll-into-view from
-          // causing cumulative drift when toggling between raw/preview on nearby lines.
-          const restore = () => {
-            if (Math.abs(scroller.scrollTop - scrollBefore) > 2) {
-              scroller.scrollTop = scrollBefore;
-            }
-          };
-          restore();
-          requestAnimationFrame(() => {
-            restore();
-            requestAnimationFrame(restore);
-          });
-        }
-      }
-
-      // Stabilize scroll after doc changes (paste, typing) to prevent decoration-induced
-      // viewport jumps. Decorations rebuild toggles lines between raw/preview which changes
-      // heights; this anchors the cursor line's visual position so the view stays still.
-      if (needsDocChangeStabilization && !needsScrollLock && anchorScreenY != null && anchorCursorPos >= 0) {
-        const scroller = update.view.scrollDOM;
-        const targetScreenY = anchorScreenY;
-        const cursorPos = anchorCursorPos;
-        requestAnimationFrame(() => {
-          const el = getLineElementForPosition(update.view, cursorPos);
-          if (!el) return;
-          const currentScreenY = measureElementTopRelativeToScroller(update.view, el);
-          const delta = currentScreenY - targetScreenY;
-          if (Math.abs(delta) > 2) {
-            scroller.scrollTop += delta;
           }
+        };
+        const ensureCursorVisible = () => {
+          const scroller = theView.scrollDOM;
+          const cursorEl = getLineElementForPosition(theView, cursorHead);
+          if (cursorEl) {
+            const elRect = cursorEl.getBoundingClientRect();
+            const scrollerRect = scroller.getBoundingClientRect();
+            if (elRect.bottom > scrollerRect.bottom) {
+              scroller.scrollTop += elRect.bottom - scrollerRect.bottom;
+            } else if (elRect.top < scrollerRect.top) {
+              scroller.scrollTop -= scrollerRect.top - elRect.top;
+            }
+          }
+        };
+        // Phase 1: microtask — runs after CM6's sync measure loop, before paint
+        queueMicrotask(restoreScroll);
+        // Phase 2: first rAF — catches CM6 follow-ups from frame 1
+        requestAnimationFrame(() => {
+          restoreScroll();
+          // Phase 3: second rAF — catches any remaining CM6 follow-ups, final word
+          requestAnimationFrame(() => {
+            restoreScroll();
+            ensureCursorVisible();
+          });
         });
       }
 
