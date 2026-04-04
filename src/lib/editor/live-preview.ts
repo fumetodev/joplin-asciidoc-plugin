@@ -6234,6 +6234,14 @@ function buildDecorations(
         if (decoration) {
           builder.add(line.from, line.from, decoration);
         }
+      } else if (isAdmon) {
+        builder.add(line.from, line.from, admonLineDecoration);
+        const cachedHeight = heightData.lineHeights.get(line.from);
+        const rawContentHeight = heightData.rawLineHeights.get(line.from) ?? rawBaseHeightPx;
+        const decoration = cachedHeight != null ? matchedLineDecoration(cachedHeight, rawContentHeight) : null;
+        if (decoration) {
+          builder.add(line.from, line.from, decoration);
+        }
       }
       pendingRole = null;
       i++;
@@ -7104,7 +7112,12 @@ const livePreviewTheme = EditorView.theme({
 
   // Admonitions (inline single-line)
   ".cm-lp-admon": { display: "inline-flex", alignItems: "baseline", gap: "1em", padding: "0.714em 1em", borderLeft: "4px solid #888", borderRadius: "0 4px 4px 0", background: "rgba(128,128,128,0.06)", width: "calc(100% - 2em)", lineHeight: "1.6", verticalAlign: "middle", boxSizing: "border-box" },
-  ".cm-lp-admon-line": { lineHeight: "normal !important", paddingTop: "0.286em !important", paddingBottom: "0.286em !important" },
+  ".cm-line.cm-lp-admon-line": {
+    lineHeight: "normal !important",
+    "--lp-admon-base-padding": "0.286em",
+    paddingTop: "calc(var(--lp-admon-base-padding) + var(--lp-match-padding-top, 0px)) !important",
+    paddingBottom: "calc(var(--lp-admon-base-padding) + var(--lp-match-padding-bottom, 0px)) !important",
+  },
   // Admonition blocks (multi-line with ==== delimiters)
   ".cm-lp-admon-block": { display: "flex", flexDirection: "column", gap: "0.286em", padding: "0.714em 1em", borderLeft: "4px solid #888", borderRadius: "0 4px 4px 0", background: "rgba(128,128,128,0.06)", lineHeight: "1.6", boxSizing: "border-box", margin: "0.3em 0" },
   ".cm-lp-admon-block-body": { display: "flex", flexDirection: "column", gap: "0.2em", textAlign: "center" },
