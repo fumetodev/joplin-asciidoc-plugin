@@ -1,5 +1,5 @@
-import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
-import { Prec, RangeSetBuilder, StateEffect } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType, keymap } from "@codemirror/view";
+import { type EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import { normalizeImageTarget } from "../utils/image-target";
 import { type ImageInsertOptions, parseImageMacroLine, serializeImageBlock } from "../utils/image-macro";
 import { renderMath, type MathNotation } from "../utils/math-render";
@@ -146,6 +146,7 @@ interface PreviewHeightCache {
 }
 
 let compactSpacing = false;
+let _activeView: EditorView | null = null;
 
 export function setCompactSpacing(enabled: boolean) {
   compactSpacing = enabled;
@@ -187,6 +188,48 @@ function measureRawLineHeightPx(view: EditorView): number {
   }
 
   return Math.ceil(view.defaultLineHeight || 22);
+}
+
+function parsePx(value: string | null | undefined): number {
+  const parsed = Number.parseFloat(value ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function collectRawLineNumbers(state: EditorState, blocks: BlockInfo[]): Set<number> {
+  const doc = state.doc;
+  const cursorLine = doc.lineAt(state.selection.main.head).number;
+  const anchorLine = doc.lineAt(state.selection.main.anchor).number;
+  const rawLines = new Set<number>();
+
+  rawLines.add(cursorLine);
+  if (anchorLine !== cursorLine) {
+    const minLine = Math.min(cursorLine, anchorLine);
+    const maxLine = Math.max(cursorLine, anchorLine);
+    for (let ln = minLine; ln <= maxLine; ln++) rawLines.add(ln);
+  }
+
+  for (const ln of [...rawLines]) {
+    if (ln > 1) {
+      const prevText = doc.line(ln - 1).text.trim();
+      if (/^\[\.([^\]]+)\]$/.test(prevText)) {
+        rawLines.add(ln - 1);
+      }
+    }
+  }
+
+  for (const block of blocks) {
+    if (block.type !== "docheader") continue;
+    if (block.titleLine > 0 && block.authorLine > 0) {
+      if (rawLines.has(block.titleLine)) {
+        rawLines.add(block.authorLine);
+      } else if (rawLines.has(block.authorLine)) {
+        rawLines.add(block.titleLine);
+      }
+    }
+    break;
+  }
+
+  return rawLines;
 }
 
 function getPreviewLineFromElement(element: HTMLElement | null): number | null {
@@ -474,30 +517,55 @@ function measureLineTopRelativeToScroller(view: EditorView, lineFrom: number): n
   return measureElementTopRelativeToScroller(view, lineElement);
 }
 
+function measureRawLineContentHeightPx(view: EditorView, lineFrom: number): number | null {
+  const lineElement = getLineElementForPosition(view, lineFrom);
+  if (!lineElement) return null;
+
+  const totalHeight = measureElementHeightPx(lineElement);
+  const matchPaddingTop = parsePx(lineElement.style.getPropertyValue("--lp-match-padding-top"));
+  const matchPaddingBottom = parsePx(lineElement.style.getPropertyValue("--lp-match-padding-bottom"));
+  const contentHeight = totalHeight - matchPaddingTop - matchPaddingBottom;
+  return contentHeight > 0 ? contentHeight : null;
+}
+
 function queuePreviewLineFocus(view: EditorView, lineFrom: number, target: HTMLElement | null) {
   pendingPreviewClickFrom = lineFrom;
   pendingPreviewClickAnchorTop = capturePreviewAnchorTop(view, target, lineFrom);
 }
 
-function preserveViewportAfterUpdate(view: EditorView, lineFrom: number, anchorTop: number | null, scrollTop: number, scrollLeft: number) {
+function preserveViewportAfterUpdate(
+  view: EditorView,
+  lineFrom: number,
+  anchorTop: number | null,
+  scrollTop: number,
+  scrollLeft: number,
+) {
   requestAnimationFrame(() => {
     view.requestMeasure({
       read(view) {
         return {
-          currentTop: measureLineTopRelativeToScroller(view, lineFrom),
+          currentTop: anchorTop != null ? measureLineTopRelativeToScroller(view, lineFrom) : null,
         };
       },
-      write({ currentTop }) {
+      write({ currentTop }, view) {
+        const scroller = view.scrollDOM;
         if (anchorTop != null && currentTop != null) {
-          view.scrollDOM.scrollTop += currentTop - anchorTop;
-        } else {
-          view.scrollDOM.scrollTop = scrollTop;
+          const delta = currentTop - anchorTop;
+          if (Math.abs(delta) > 0.5) {
+            scroller.scrollTop += delta;
+          }
+        } else if (Math.abs(scroller.scrollTop - scrollTop) > 0.5) {
+          scroller.scrollTop = scrollTop;
         }
-        view.scrollDOM.scrollLeft = scrollLeft;
+
+        if (Math.abs(scroller.scrollLeft - scrollLeft) > 0.5) {
+          scroller.scrollLeft = scrollLeft;
+        }
       },
     });
   });
 }
+
 
 function focusPreviewLine(view: EditorView, lineFrom: number) {
   const anchorTop = pendingPreviewClickAnchorTop;
@@ -519,15 +587,14 @@ function focusPreviewLine(view: EditorView, lineFrom: number) {
   }
 
   // Focus BEFORE dispatching so that editorHasActiveFocus() is true during
-  // the decoration rebuild. Without this, the dispatch triggers a rebuild with
-  // editorHasFocus=false (all lines rendered as widgets), then view.focus()
-  // triggers a SECOND rebuild with editorHasFocus=true (cursor line raw).
-  // The two-phase decoration swap confuses CM6's height oracle, causing massive
-  // scroll jumps (hundreds of pixels) on heading-to-heading clicks.
+  // the decoration rebuild. Bundle the focus effect with the selection change
+  // so the StateField rebuilds decorations exactly once with correct state.
   view.focus();
   view.dispatch({
     selection: { anchor },
+    effects: setEditorFocusedEffect.of(true),
   });
+  preserveViewportAfterUpdate(view, lineFrom, anchorTop, scrollTop, scrollLeft);
 }
 
 function serializeCodeBlock(language: string, code: string, hadAttributeLine: boolean): string {
@@ -2141,26 +2208,24 @@ function schedulePreviewHeightMeasurement(view: EditorView, cache: PreviewHeight
   });
 }
 
-function stabilizedLineDecoration(renderedHeightPx: number, rawHeightPx: number): Decoration | null {
-  if (!Number.isFinite(renderedHeightPx) || renderedHeightPx <= rawHeightPx + MIN_HEIGHT_DELTA_PX) {
+function matchedLineDecoration(targetHeightPx: number, rawContentHeightPx: number): Decoration | null {
+  if (!Number.isFinite(targetHeightPx) || !Number.isFinite(rawContentHeightPx)) {
     return null;
   }
 
-  // Use exact floating-point values — no Math.ceil/Math.floor rounding.
-  // Sub-pixel mismatches between the padded raw line and the rendered widget
-  // cause CM6's height oracle to detect changes on every measure cycle,
-  // leading to "Measure loop restarted more than 5 times" oscillation and
-  // massive scroll jumps when switching between different heading levels.
-  const heightDelta = renderedHeightPx - rawHeightPx;
-  const paddingTop = heightDelta / 2;
-  const paddingBottom = heightDelta / 2;
+  if (targetHeightPx <= rawContentHeightPx + MIN_HEIGHT_DELTA_PX) {
+    return null;
+  }
 
+  const extraPaddingPx = (targetHeightPx - rawContentHeightPx) / 2;
   return Decoration.line({
     class: "cm-lp-stabilized-line",
     attributes: {
       style: [
-        `padding-top:${paddingTop}px`,
-        `padding-bottom:${paddingBottom}px`,
+        `--lp-match-padding-top:${extraPaddingPx}px`,
+        `--lp-match-padding-bottom:${extraPaddingPx}px`,
+        `min-height:${targetHeightPx}px`,
+        "box-sizing:border-box",
       ].join(";"),
     },
   });
@@ -4201,7 +4266,10 @@ class StemBlockPreviewWidget extends WidgetType {
     readonly blockTo: number,
     readonly width: number = 100,
     readonly align: "left" | "center" | "right" = "center",
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 80; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -4258,7 +4326,10 @@ class MermaidBlockPreviewWidget extends WidgetType {
     readonly blockTo: number,
     readonly width: number,
     readonly align: "left" | "center" | "right" = "center",
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 200; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -4323,7 +4394,10 @@ class DocHeaderWidget extends WidgetType {
     readonly title: string,
     readonly attributes: Array<{ name: string; value: string }>,
     readonly lineFrom: number,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 60; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -4380,7 +4454,10 @@ class TocWidget extends WidgetType {
     readonly entries: TocEntry[],
     readonly lineFrom: number,
     readonly isVirtual: boolean,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 40 + this.entries.length * 24; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -4421,7 +4498,7 @@ class TocWidget extends WidgetType {
           const targetLine = view.state.doc.line(targetLineNumber);
           view.dispatch({
             selection: { anchor: targetLine.from },
-            effects: scrollToLineEffect.of(targetLine.from),
+            effects: EditorView.scrollIntoView(targetLine.from, { y: "start", yMargin: 50 }),
           });
           view.focus();
         }
@@ -4470,7 +4547,14 @@ class CodeBlockPreviewWidget extends WidgetType {
     readonly blockFrom: number,
     readonly blockTo: number,
     readonly hadAttributeLine: boolean,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number {
+    if (this.cachedHeight > 0) return this.cachedHeight;
+    const lineCount = this.code.split("\n").length;
+    return 40 + lineCount * 20;
+  }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -4552,7 +4636,10 @@ class TablePreviewWidget extends WidgetType {
     readonly lineFrom: number,
     readonly blockFrom: number,
     readonly blockTo: number,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 40 + (1 + this.rows.length) * 36; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -4689,7 +4776,10 @@ class BlockquotePreviewWidget extends WidgetType {
     readonly blockFrom: number,
     readonly blockTo: number,
     readonly hadAttributeLine: boolean,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 40 + this.lines.length * 24; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -4778,7 +4868,10 @@ class BibliographyPreviewWidget extends WidgetType {
     readonly lineFrom: number,
     readonly blockFrom: number,
     readonly blockTo: number,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 40 + this.entries.length * 28; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -4829,7 +4922,10 @@ class ContentBlockPreviewWidget extends WidgetType {
     readonly lines: Array<{ html: string; empty: boolean }>,
     readonly lineFrom: number,
     readonly admonitionType?: string,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 40 + this.lines.length * 24; }
 
   toDOM(): HTMLElement {
     // Admonition blocks get the same styling as inline admonitions but with multi-line content
@@ -4947,7 +5043,10 @@ class ImagePreviewWidget extends WidgetType {
     readonly lineFrom: number,
     readonly blockFrom: number,
     readonly blockTo: number,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 200; }
 
   toDOM(): HTMLElement {
     const align = this.options.align;
@@ -5093,7 +5192,10 @@ class TableEditWidget extends WidgetType {
     readonly blockFrom: number,
     readonly blockTo: number,
     readonly options: { liveSync?: boolean; showDeleteButton?: boolean } = {},
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 60 + (1 + this.rows.length) * 40; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -5466,7 +5568,10 @@ class CodeLangWidget extends WidgetType {
     readonly language: string,
     readonly attrFrom: number,
     readonly attrTo: number,
+    readonly cachedHeight: number = -1,
   ) { super(); }
+
+  get estimatedHeight(): number { return this.cachedHeight > 0 ? this.cachedHeight : 24; }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -5546,48 +5651,18 @@ const specialBlockLineDecoration = Decoration.line({ class: "cm-lp-special-block
 // Build Decorations
 // =====================================================
 
-function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): any {
+function buildDecorations(
+  state: EditorState,
+  isFocused: boolean,
+  heightData: { lineHeights: Map<number, number>; rawLineHeights: Map<number, number>; rawBaseHeight: number },
+): any {
   const builder = new RangeSetBuilder<Decoration>();
-  const doc = view.state.doc;
-  const cursorLine = doc.lineAt(view.state.selection.main.head).number;
-  const anchorLine = doc.lineAt(view.state.selection.main.anchor).number;
-  // Lines that should show as raw (cursor line + any selected range lines)
-  const rawLines = new Set<number>();
-  rawLines.add(cursorLine);
-  if (anchorLine !== cursorLine) {
-    // Selection spans multiple lines — show all as raw
-    const minLine = Math.min(cursorLine, anchorLine);
-    const maxLine = Math.max(cursorLine, anchorLine);
-    for (let ln = minLine; ln <= maxLine; ln++) rawLines.add(ln);
-  }
-  // If a raw line is affected by a role/attribute line above it (e.g., [.text-center]),
-  // also show that attribute line as raw so it's visible and editable.
-  for (const ln of [...rawLines]) {
-    if (ln > 1) {
-      const prevText = doc.line(ln - 1).text.trim();
-      if (/^\[\.([^\]]+)\]$/.test(prevText)) {
-        rawLines.add(ln - 1);
-      }
-    }
-  }
-  const editorHasFocus = editorHasActiveFocus(view);
-  const rawBaseHeightPx = measureRawLineHeightPx(view);
+  const doc = state.doc;
+  const cursorLine = doc.lineAt(state.selection.main.head).number;
   const blocks = detectBlocks(doc);
-
-  // If cursor is on the document title line (= Title) and there's an author line
-  // directly below it (part of the docheader block), show both as raw so they're
-  // editable together. Also: if cursor is on the author line, show the title too.
-  for (const block of blocks) {
-    if (block.type !== "docheader") continue;
-    if (block.titleLine > 0 && block.authorLine > 0) {
-      if (rawLines.has(block.titleLine)) {
-        rawLines.add(block.authorLine);
-      } else if (rawLines.has(block.authorLine)) {
-        rawLines.add(block.titleLine);
-      }
-    }
-    break;
-  }
+  const rawLines = collectRawLineNumbers(state, blocks);
+  const editorHasFocus = isFocused;
+  const rawBaseHeightPx = heightData.rawBaseHeight;
 
   // Detect :stem: document attribute for math notation default
   const stemInfo = detectStemAttribute(doc);
@@ -5750,7 +5825,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
             const firstLine = doc.line(blockStart);
             builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
             builder.add(firstLine.from, firstLine.to, Decoration.replace({
-              widget: new DocHeaderWidget(block.title, block.attributes, firstLine.from),
+              widget: new DocHeaderWidget(block.title, block.attributes, firstLine.from, heightData.lineHeights.get(firstLine.from) ?? -1),
             }));
           }
           // Hide remaining lines (or all lines when widget is hidden)
@@ -5769,7 +5844,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           const firstLine = doc.line(blockStart);
           builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
           builder.add(firstLine.from, firstLine.to, Decoration.replace({
-            widget: new ImagePreviewWidget(block.options, firstLine.from, fromPos, toPos),
+            widget: new ImagePreviewWidget(block.options, firstLine.from, fromPos, toPos, heightData.lineHeights.get(firstLine.from) ?? -1),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
             const line = doc.line(j);
@@ -5791,6 +5866,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               contentLines,
               firstLine.from,
               block.admonitionType,
+              heightData.lineHeights.get(firstLine.from) ?? -1,
             ),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
@@ -5804,7 +5880,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       } else if (block.type === "code") {
         if (cursorInBlock) {
           // Calculate padding for height stabilization
-          let cachedCodeHeight = heightCache.lineHeights.get(doc.line(blockStart).from);
+          let cachedCodeHeight = heightData.lineHeights.get(doc.line(blockStart).from);
           if (!cachedCodeHeight) {
             const codeLineCount = Math.max(1, block.closeLine - block.openLine - 1);
             cachedCodeHeight = estimateCodeBlockHeightPx(codeLineCount, rawBaseHeightPx);
@@ -5872,6 +5948,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               fromPos,
               toPos,
               hadAttributeLine,
+              heightData.lineHeights.get(firstLine.from) ?? -1,
             ),
           }));
           // Hide remaining lines
@@ -5912,7 +5989,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           const firstLine = doc.line(blockStart);
           builder.add(firstLine.from, firstLine.from, specialBlockLineDecoration);
           builder.add(firstLine.from, firstLine.to, Decoration.replace({
-            widget: new TablePreviewWidget(headers, rows, attrs, firstLine.from, fromPos, toPos),
+            widget: new TablePreviewWidget(headers, rows, attrs, firstLine.from, fromPos, toPos, heightData.lineHeights.get(firstLine.from) ?? -1),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
             const line = doc.line(j);
@@ -5957,6 +6034,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               fromPos,
               toPos,
               hadAttributeLine,
+              heightData.lineHeights.get(firstLine.from) ?? -1,
             ),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
@@ -5986,6 +6064,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               toPos,
               block.width,
               block.align,
+              heightData.lineHeights.get(firstLine.from) ?? -1,
             ),
           }));
           // Hide remaining lines
@@ -6010,7 +6089,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           const cachedSvg = getCachedMermaidSvg(diagramSource);
           if (!cachedSvg) {
             renderMermaidAsync(diagramSource, () => {
-              refreshLivePreview(view);
+              if (_activeView) refreshLivePreview(_activeView);
             });
           }
 
@@ -6025,6 +6104,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               toPos,
               block.width,
               block.align,
+              heightData.lineHeights.get(firstLine.from) ?? -1,
             ),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
@@ -6048,6 +6128,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
               firstLine.from,
               fromPos,
               toPos,
+              heightData.lineHeights.get(firstLine.from) ?? -1,
             ),
           }));
           for (let j = blockStart + 1; j <= blockEnd; j++) {
@@ -6064,7 +6145,7 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
           const macroLine = doc.line(block.macroLine);
           builder.add(macroLine.from, macroLine.from, specialBlockLineDecoration);
           builder.add(macroLine.from, macroLine.to, Decoration.replace({
-            widget: new TocWidget(tocConfig.title, tocEntries, macroLine.from, false),
+            widget: new TocWidget(tocConfig.title, tocEntries, macroLine.from, false, heightData.lineHeights.get(macroLine.from) ?? -1),
           }));
         }
       }
@@ -6127,29 +6208,31 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
       if (headingMatch) {
         // Headings: stabilize height since rendered preview (large font + margins)
         // is genuinely taller than the raw monospace text.
-        const cachedHeight = heightCache.lineHeights.get(line.from);
+        const cachedHeight = heightData.lineHeights.get(line.from);
         const renderedHeight = cachedHeight
           ?? estimateHeadingLineHeightPx(rawBaseHeightPx, headingMatch[1].length);
+        const rawContentHeight = heightData.rawLineHeights.get(line.from) ?? rawBaseHeightPx;
         if (renderedHeight) {
-          const decoration = stabilizedLineDecoration(renderedHeight, rawBaseHeightPx);
+          const decoration = matchedLineDecoration(renderedHeight, rawContentHeight);
           if (decoration) {
             builder.add(line.from, line.from, decoration);
           }
         }
       } else if (isList) {
         builder.add(line.from, line.from, listLineDecoration);
-        const cachedHeight = heightCache.lineHeights.get(line.from);
-        if (cachedHeight && cachedHeight > rawBaseHeightPx + MIN_HEIGHT_DELTA_PX) {
-          builder.add(line.from, line.from, Decoration.line({
-            attributes: { style: `min-height:${cachedHeight}px;box-sizing:border-box` },
-          }));
+        const cachedHeight = heightData.lineHeights.get(line.from);
+        const renderedHeight = cachedHeight ?? estimateListLineHeightPx(rawBaseHeightPx);
+        const rawContentHeight = heightData.rawLineHeights.get(line.from) ?? estimateListLineHeightPx(rawBaseHeightPx);
+        const decoration = matchedLineDecoration(renderedHeight, rawContentHeight);
+        if (decoration) {
+          builder.add(line.from, line.from, decoration);
         }
       } else if (isParagraph) {
-        const cachedHeight = heightCache.lineHeights.get(line.from);
-        if (cachedHeight && cachedHeight > rawBaseHeightPx + MIN_HEIGHT_DELTA_PX) {
-          builder.add(line.from, line.from, Decoration.line({
-            attributes: { style: `min-height:${cachedHeight}px;box-sizing:border-box` },
-          }));
+        const cachedHeight = heightData.lineHeights.get(line.from);
+        const rawContentHeight = heightData.rawLineHeights.get(line.from) ?? rawBaseHeightPx;
+        const decoration = cachedHeight != null ? matchedLineDecoration(cachedHeight, rawContentHeight) : null;
+        if (decoration) {
+          builder.add(line.from, line.from, decoration);
         }
       }
       pendingRole = null;
@@ -6161,11 +6244,11 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
     if (i === tocTargetLine && tocEntries.length > 0) {
       if (line.from < line.to) {
         builder.add(line.from, line.to, Decoration.replace({
-          widget: new TocWidget(tocConfig.title, tocEntries, line.from, true),
+          widget: new TocWidget(tocConfig.title, tocEntries, line.from, true, heightData.lineHeights.get(line.from) ?? -1),
         }));
       } else {
         builder.add(line.from, line.from, Decoration.replace({
-          widget: new TocWidget(tocConfig.title, tocEntries, line.from, true),
+          widget: new TocWidget(tocConfig.title, tocEntries, line.from, true, heightData.lineHeights.get(line.from) ?? -1),
         }));
       }
       pendingRole = null;
@@ -6206,7 +6289,12 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
         .replace(/;?margin:[^;"]*/g, (m) => m.replace(/margin:[^;"]*/, "margin:0.3em 0 0"));
       html = `<span style="display:inline-block;width:100%;border-bottom:1px solid var(--asciidoc-border,#ddd);padding-bottom:0.3em">${html}${authorBylineHtml}</span>`;
     }
-    const widgetHeight = heightCache.lineHeights.get(line.from) ?? -1;
+    const widgetHeight = heightData.lineHeights.get(line.from)
+      ?? (headingMatch
+        ? estimateHeadingLineHeightPx(rawBaseHeightPx, headingMatch[1].length)
+        : isList
+          ? estimateListLineHeightPx(rawBaseHeightPx)
+          : rawBaseHeightPx);
     builder.add(line.from, line.to, Decoration.replace({ widget: new PreviewLineWidget(html, line.from, widgetHeight) }));
 
     i++;
@@ -6219,49 +6307,126 @@ function buildDecorations(view: EditorView, heightCache: PreviewHeightCache): an
 // Plugin
 // =====================================================
 
-const livePreviewPlugin = ViewPlugin.fromClass(
+const setEditorFocusedEffect = StateEffect.define<boolean>();
+const updateHeightCacheEffect = StateEffect.define<{
+  heights: Map<number, number>;
+  rawLineHeights: Map<number, number>;
+  rawBaseHeight: number;
+}>();
+
+const livePreviewDecorationField = StateField.define<{
+  decorations: DecorationSet;
+  isFocused: boolean;
+  lineHeights: Map<number, number>;
+  rawLineHeights: Map<number, number>;
+  rawBaseHeight: number;
+}>({
+  create(state) {
+    return {
+      decorations: buildDecorations(state, false, { lineHeights: new Map(), rawLineHeights: new Map(), rawBaseHeight: 20 }),
+      isFocused: false,
+      lineHeights: new Map(),
+      rawLineHeights: new Map(),
+      rawBaseHeight: 20,
+    };
+  },
+  update(value, tr) {
+    let { isFocused, lineHeights, rawLineHeights, rawBaseHeight } = value;
+    let needsRebuild = false;
+
+    for (const effect of tr.effects) {
+      if (effect.is(setEditorFocusedEffect) && effect.value !== isFocused) {
+        isFocused = effect.value;
+        needsRebuild = true;
+      }
+      if (effect.is(updateHeightCacheEffect)) {
+        lineHeights = new Map(lineHeights);
+        for (const [k, v] of effect.value.heights) lineHeights.set(k, v);
+        rawLineHeights = new Map(rawLineHeights);
+        for (const [k, v] of effect.value.rawLineHeights) rawLineHeights.set(k, v);
+        rawBaseHeight = effect.value.rawBaseHeight;
+        needsRebuild = true;
+      }
+      if (effect.is(refreshLivePreviewEffect)) {
+        needsRebuild = true;
+      }
+    }
+
+    if (tr.docChanged) {
+      const remapped = new Map<number, number>();
+      for (const [oldFrom, height] of lineHeights) {
+        try {
+          const newFrom = tr.changes.mapPos(oldFrom, 1);
+          if (newFrom >= 0 && newFrom <= tr.newDoc.length) remapped.set(newFrom, height);
+        } catch { /* drop stale entries */ }
+      }
+      lineHeights = remapped;
+      const remappedRaw = new Map<number, number>();
+      for (const [oldFrom, height] of rawLineHeights) {
+        try {
+          const newFrom = tr.changes.mapPos(oldFrom, 1);
+          if (newFrom >= 0 && newFrom <= tr.newDoc.length) remappedRaw.set(newFrom, height);
+        } catch { /* drop stale entries */ }
+      }
+      rawLineHeights = remappedRaw;
+      needsRebuild = true;
+    }
+
+    if (tr.selection) {
+      needsRebuild = true;
+    }
+
+    if (!needsRebuild) {
+      return { ...value, isFocused, lineHeights, rawLineHeights, rawBaseHeight };
+    }
+
+    return {
+      decorations: buildDecorations(tr.state, isFocused, { lineHeights, rawLineHeights, rawBaseHeight }),
+      isFocused,
+      lineHeights,
+      rawLineHeights,
+      rawBaseHeight,
+    };
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.decorations),
+});
+
+const livePreviewViewPlugin = ViewPlugin.fromClass(
   class {
-    decorations: any;
-    heightCache: PreviewHeightCache;
     lastRawHeight: number;
 
     constructor(view: EditorView) {
-      this.heightCache = createPreviewHeightCache();
+      _activeView = view;
       this.lastRawHeight = measureRawLineHeightPx(view);
-      this.decorations = buildDecorations(view, this.heightCache);
-      schedulePreviewHeightMeasurement(view, this.heightCache);
+      // Dispatch initial focus state after current update cycle completes
+      queueMicrotask(() => {
+        view.dispatch({ effects: setEditorFocusedEffect.of(editorHasActiveFocus(view)) });
+      });
+      this.scheduleHeightMeasurement(view);
     }
 
-    update(update: any) {
-      const forceRefresh = update.transactions.some((transaction: any) =>
-        transaction.effects.some((effect: any) => effect.is(refreshLivePreviewEffect))
-      );
-      // Detect font-size changes (zoom, browser zoom, accessibility) and clear stale height cache
+    update(update: ViewUpdate) {
+      _activeView = update.view;
+
+      // Track focus changes — dispatch as effect so the StateField can rebuild decorations
+      if (update.focusChanged) {
+        const focused = editorHasActiveFocus(update.view);
+        const current = update.state.field(livePreviewDecorationField).isFocused;
+        if (focused !== current) {
+          queueMicrotask(() => {
+            update.view.dispatch({ effects: setEditorFocusedEffect.of(focused) });
+          });
+        }
+      }
+
+      // Detect font-size changes (zoom, browser zoom, accessibility)
       const currentRawHeight = measureRawLineHeightPx(update.view);
-      if (Math.abs(currentRawHeight - this.lastRawHeight) > 0.5) {
-        this.heightCache.lineHeights.clear();
+      const rawHeightChanged = Math.abs(currentRawHeight - this.lastRawHeight) > 0.5;
+      if (rawHeightChanged) {
         this.lastRawHeight = currentRawHeight;
       }
+
       if (update.docChanged) {
-        // Remap height cache keys through document changes instead of clearing.
-        // This preserves accurate measured heights for lines that didn't change
-        // (e.g., heading widget heights stay valid while editing nearby lines),
-        // preventing padding flicker when the user starts typing.
-        const remapped = new Map<number, number>();
-        for (const [oldFrom, height] of this.heightCache.lineHeights) {
-          try {
-            const newFrom = update.changes.mapPos(oldFrom, 1);
-            // Only keep entries where the position is still valid
-            if (newFrom >= 0 && newFrom <= update.state.doc.length) {
-              remapped.set(newFrom, height);
-            }
-          } catch {
-            // mapPos throws RangeError when oldFrom is outside the changeset's
-            // source range (e.g., stale cache key after a large doc replacement).
-            // Silently drop the entry — it will be re-measured.
-          }
-        }
-        this.heightCache.lineHeights = remapped;
         closeFootnotePopup();
         closeBiblioRefPopup();
       }
@@ -6269,149 +6434,12 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         closeFootnotePopup();
         closeBiblioRefPopup();
       }
-      // Detect explicit scroll-to-line requests (e.g., TOC link clicks)
-      let scrollToTarget: number | null = null;
-      for (const tr of update.transactions) {
-        for (const effect of tr.effects) {
-          if (effect.is(scrollToLineEffect)) {
-            scrollToTarget = effect.value;
-          }
-        }
-      }
 
-      // Don't lock scroll when search panel is open — search needs to scroll to matches
-      const searchOpen = update.view.dom.querySelector(".cm-panel.cm-search") != null;
-      const oldLine = update.startState.doc.lineAt(update.startState.selection.main.head).number;
-      const newLine = update.state.doc.lineAt(update.state.selection.main.head).number;
-      const lineDistance = Math.abs(newLine - oldLine);
-      // Skip scroll lock when lineDistance is 0 (pure focus changes, within-line cursor moves)
-      // — CM6 handles these correctly and our correction can fight CM6's height oracle.
-      const needsScrollLock = (update.selectionSet || update.focusChanged) && !update.docChanged && !searchOpen && scrollToTarget == null && lineDistance > 0;
-      // Also stabilize scroll for doc changes (paste, typing) to prevent
-      // decoration-induced viewport jumps when line heights change during rebuild.
-      // Skip for same-line edits (normal typing) — CM6 handles those fine on its
-      // own and the rAF measurement delta causes cumulative scroll drift.
-      const needsDocChangeStabilization = update.docChanged && lineDistance > 0 && !searchOpen && scrollToTarget == null;
-      const needsStabilization = needsScrollLock || needsDocChangeStabilization;
-
-      // Capture a STABLE ANCHOR before rebuilding decorations.
-      // The anchor is a visible line that is NOT the old or new cursor line —
-      // its height doesn't change during the decoration rebuild, so its screen
-      // position is invariant. Used for both click stabilization and doc-change
-      // stabilization (e.g., pressing Enter in a list shouldn't shift the viewport).
-      let anchorScreenY: number | null = null;
-      let anchorScrollTop = 0;
-      let anchorPos = -1;
-      if (needsStabilization) {
-        const doc = update.startState.doc;
-        const minChangeLine = Math.min(oldLine, newLine);
-        const maxChangeLine = Math.max(oldLine, newLine);
-        const vp = update.view.viewport;
-        const firstVpLine = doc.lineAt(vp.from).number;
-        const lastVpLine = doc.lineAt(Math.min(vp.to, doc.length)).number;
-        let stableLineNum = -1;
-        // Prefer a line ABOVE the change area — nothing above it changes.
-        for (let ln = minChangeLine - 1; ln >= firstVpLine; ln--) {
-          stableLineNum = ln;
-          break;
-        }
-        // If none above, try below the change area.
-        if (stableLineNum < 0) {
-          for (let ln = maxChangeLine + 1; ln <= lastVpLine; ln++) {
-            stableLineNum = ln;
-            break;
-          }
-        }
-        if (stableLineNum > 0 && stableLineNum <= doc.lines) {
-          anchorPos = doc.line(stableLineNum).from;
-        }
-        if (anchorPos >= 0) {
-          const el = getLineElementForPosition(update.view, anchorPos);
-          if (el) {
-            anchorScreenY = measureElementTopRelativeToScroller(update.view, el);
-            anchorScrollTop = update.view.scrollDOM.scrollTop;
-          }
-        }
-      }
-
-      // Don't rebuild decorations on viewportChanged — decorations cover the
-      // entire document, so CM6 applies them as lines scroll into view without
-      // a rebuild. Including viewportChanged here caused a feedback loop:
-      // decoration rebuild → height changes → CM6 adjusts scroll → viewport
-      // changes → another rebuild → oscillation ("Measure loop restarted more
-      // than 5 times") with hundreds of pixels of accumulated scroll error.
-      if (update.docChanged || update.selectionSet || update.focusChanged || forceRefresh) {
-        this.decorations = buildDecorations(update.view, this.heightCache);
-      }
-      // Only measure widget heights when content changed (new widgets may have
-      // appeared) or on explicit refresh. Selection/focus changes don't resize
-      // widgets — the cache already has accurate values from prior measurements.
-      // Unnecessary requestMeasure calls keep CM6's measure loop running longer,
-      // prolonging height-oracle oscillation.
-      if (update.docChanged || forceRefresh) {
-        schedulePreviewHeightMeasurement(update.view, this.heightCache);
-      }
-
-      if (needsStabilization && anchorScreenY != null && anchorPos >= 0) {
-        const targetScreenY = anchorScreenY;
-        const scrollTopBefore = anchorScrollTop;
-        const stablePos = anchorPos;
-        const cursorHead = update.state.selection.main.head;
-        const theView = update.view;
-        // Restore scroll and pin the stable anchor at its original screen position.
-        // Applied at multiple timing points because CM6's measure loop oscillation
-        // ("Measure loop restarted more than 5 times") schedules follow-up rAFs
-        // that can undo our correction. We must run AFTER all CM6 follow-ups settle.
-        const restoreScroll = () => {
-          const scroller = theView.scrollDOM;
-          scroller.scrollTop = scrollTopBefore;
-          const el = getLineElementForPosition(theView, stablePos);
-          if (el) {
-            const currentScreenY = measureElementTopRelativeToScroller(theView, el);
-            const delta = currentScreenY - targetScreenY;
-            if (Math.abs(delta) > 2) {
-              scroller.scrollTop += delta;
-            }
-          }
-        };
-        const ensureCursorVisible = () => {
-          const scroller = theView.scrollDOM;
-          const cursorEl = getLineElementForPosition(theView, cursorHead);
-          if (cursorEl) {
-            const elRect = cursorEl.getBoundingClientRect();
-            const scrollerRect = scroller.getBoundingClientRect();
-            if (elRect.bottom > scrollerRect.bottom) {
-              scroller.scrollTop += elRect.bottom - scrollerRect.bottom;
-            } else if (elRect.top < scrollerRect.top) {
-              scroller.scrollTop -= scrollerRect.top - elRect.top;
-            }
-          }
-        };
-        // Phase 1: microtask — runs after CM6's sync measure loop, before paint
-        queueMicrotask(restoreScroll);
-        // Phase 2: first rAF — catches CM6 follow-ups from frame 1
-        requestAnimationFrame(() => {
-          restoreScroll();
-          // Phase 3: second rAF — catches any remaining CM6 follow-ups, final word
-          requestAnimationFrame(() => {
-            restoreScroll();
-            ensureCursorVisible();
-          });
-        });
-      }
-
-      // Explicit scroll-to-line: scroll after decorations have settled
-      if (scrollToTarget != null) {
-        const targetPos = scrollToTarget;
-        requestAnimationFrame(() => {
-          const el = getLineElementForPosition(update.view, targetPos);
-          if (el) {
-            const scrollerRect = update.view.scrollDOM.getBoundingClientRect();
-            const elRect = el.getBoundingClientRect();
-            const offset = elRect.top - scrollerRect.top - 50;
-            update.view.scrollDOM.scrollTop += offset;
-          }
-        });
+      const forceRefresh = update.transactions.some((tr: any) =>
+        tr.effects.some((e: any) => e.is(refreshLivePreviewEffect)),
+      );
+      if (update.docChanged || update.selectionSet || update.focusChanged || rawHeightChanged || forceRefresh) {
+        this.scheduleHeightMeasurement(update.view);
       }
 
       // Auto-open modal when cursor enters a block via editing (backspace, etc.)
@@ -6424,11 +6452,9 @@ const livePreviewPlugin = ViewPlugin.fromClass(
           const blockStart = getBlockStartLineNumber(block);
           const blockEnd = getBlockEndLineNumber(block);
           if (cursorLine >= blockStart && cursorLine <= blockEnd) {
-            // Don't auto-open for content blocks (they show raw) or images (complex)
             if (block.type === "code" || block.type === "table" || block.type === "blockquote" || block.type === "stem" || block.type === "mermaid" || block.type === "bibliography") {
-              // Delay slightly so CM6 finishes its update cycle
               setTimeout(() => {
-                if (blockEditorOverlay) return; // Modal already opened
+                if (blockEditorOverlay) return;
                 const info = { block, blockStart, blockEnd };
                 openPreviewBlockModal(view, info);
               }, 50);
@@ -6438,12 +6464,76 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         }
       }
     }
+
+    scheduleHeightMeasurement(view: EditorView) {
+      view.requestMeasure({
+        read(view) {
+          const lineHeights = new Map<number, number>();
+          const rawLineHeights = new Map<number, number>();
+          for (const element of view.dom.querySelectorAll<HTMLElement>(`[${LINE_HEIGHT_DATA_ATTR}]`)) {
+            const rawFrom = element.getAttribute(LINE_HEIGHT_DATA_ATTR);
+            if (!rawFrom) continue;
+            const from = Number.parseInt(rawFrom, 10);
+            if (!Number.isFinite(from)) continue;
+            const renderedLine = element.closest(".cm-line");
+            const measurementTarget = renderedLine instanceof HTMLElement ? renderedLine : element;
+            const height = measureElementHeightPx(measurementTarget);
+            if (height > 0) {
+              lineHeights.set(from, Math.max(height, lineHeights.get(from) ?? 0));
+            }
+          }
+          const blocks = detectBlocks(view.state.doc);
+          const rawLines = collectRawLineNumbers(view.state, blocks);
+          for (const lineNumber of rawLines) {
+            const lineFrom = view.state.doc.line(lineNumber).from;
+            const rawHeight = measureRawLineContentHeightPx(view, lineFrom);
+            if (rawHeight != null) {
+              rawLineHeights.set(lineFrom, rawHeight);
+            }
+          }
+          return { lineHeights, rawLineHeights };
+        },
+        write(measured, view) {
+          const currentState = view.state.field(livePreviewDecorationField);
+          const rawBaseHeight = measureRawLineHeightPx(view);
+          let changed = Math.abs(currentState.rawBaseHeight - rawBaseHeight) > 0.5;
+
+          if (!changed) {
+            for (const [k, v] of measured.lineHeights) {
+              if (Math.abs((currentState.lineHeights.get(k) ?? 0) - v) > 1) {
+                changed = true;
+                break;
+              }
+            }
+          }
+
+          if (!changed) {
+            for (const [k, v] of measured.rawLineHeights) {
+              if (Math.abs((currentState.rawLineHeights.get(k) ?? 0) - v) > 1) {
+                changed = true;
+                break;
+              }
+            }
+          }
+
+          if (changed) {
+            const heights = measured.lineHeights;
+            const rawLineHeights = measured.rawLineHeights;
+            // Defer dispatch — write() runs inside CM6's measure phase where
+            // dispatch is not allowed ("update is in progress" error).
+            queueMicrotask(() => {
+              view.dispatch({
+                effects: updateHeightCacheEffect.of({ heights, rawLineHeights, rawBaseHeight }),
+              });
+            });
+          }
+        },
+      });
+    }
   },
-  { decorations: (v) => v.decorations },
 );
 
 export const refreshLivePreviewEffect = StateEffect.define<null>();
-const scrollToLineEffect = StateEffect.define<number>();
 
 export function refreshLivePreview(view: EditorView) {
   view.dispatch({
@@ -6557,6 +6647,7 @@ const livePreviewTheme = EditorView.theme({
   },
   ".cm-scroller": {
     padding: "12px 0",
+    overflowAnchor: "none",
   },
   ".cm-content": {
     padding: "0",
@@ -6577,7 +6668,11 @@ const livePreviewTheme = EditorView.theme({
   "&:not(.cm-focused) .cm-activeLine": {
     background: "transparent !important",
   },
-  ".cm-lp-stabilized-line": {
+  ".cm-line.cm-lp-stabilized-line": {
+    "--lp-match-padding-top": "0px",
+    "--lp-match-padding-bottom": "0px",
+    paddingTop: "var(--lp-match-padding-top)",
+    paddingBottom: "var(--lp-match-padding-bottom)",
     boxSizing: "border-box",
   },
   ".cm-gutters": {
@@ -7618,8 +7713,9 @@ const livePreviewTheme = EditorView.theme({
   // List lines — tuned to match the raw editor line height more closely
   ".cm-line.cm-lp-list-line": {
     lineHeight: "1.6 !important",
-    paddingTop: `${LIST_LINE_PADDING_EM}em !important`,
-    paddingBottom: `${LIST_LINE_PADDING_EM}em !important`,
+    "--lp-list-base-padding": `${LIST_LINE_PADDING_EM}em`,
+    paddingTop: "calc(var(--lp-list-base-padding) + var(--lp-match-padding-top, 0px)) !important",
+    paddingBottom: "calc(var(--lp-list-base-padding) + var(--lp-match-padding-bottom, 0px)) !important",
     margin: "0 !important",
   },
   ".cm-line.cm-lp-special-block-line": {
@@ -7925,7 +8021,8 @@ export function livePreview() {
         },
       },
     ])),
-    livePreviewPlugin,
+    livePreviewDecorationField,
+    livePreviewViewPlugin,
     livePreviewTheme,
     xrefClickHandler,
   ];
